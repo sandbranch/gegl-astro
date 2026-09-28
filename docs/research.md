@@ -251,7 +251,12 @@ Checked in GIMP 3.2.6 (tag `GIMP_3_2_6`, `e101dd19`, 2026-09-10):
   and a missing submenu is created on demand
   (`app/widgets/gimpmenumodel.c` line 1241, `gimp_menu_model_new_submenu`).
   So `<Image>/Filters/Astronomy` (Hennig's path) works for GEGL ops as it
-  does for plug-ins. **Not yet seen in a running GIMP** (PLAN step 2).
+  does for plug-ins. **Seen working** in GIMP 3.2.6 on Broadway
+  (`docs/astronomy-menu.png`, `tests/gui/look.sh`).
+- **Property names:** a property named `output` (like the output pad) is
+  left out of GIMP's filter dialog, though it can still be set from a
+  script (found with the first version of `astro:background`; its
+  property is now `show`).
 - **Whole-image ops:** a gradient fit needs the whole layer. The house
   pattern (gegl-presence `dehaze.c`): `get_required_for_output`,
   `get_cached_region` and `get_invalidated_by_change` all return the input
