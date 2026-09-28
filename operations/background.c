@@ -52,10 +52,10 @@ enum_start (astro_background_correction)
               N_("Divide (vignetting)"))
 enum_end (AstroBackgroundCorrection)
 
-enum_start (astro_background_output)
+enum_start (astro_background_show)
   enum_value (ASTRO_BACKGROUND_CORRECTED, "corrected", N_("Corrected image"))
   enum_value (ASTRO_BACKGROUND_MODEL,     "model",     N_("Background model"))
-enum_end (AstroBackgroundOutput)
+enum_end (AstroBackgroundShow)
 
 property_enum (correction, _("Correction"),
                AstroBackgroundCorrection, astro_background_correction,
@@ -90,8 +90,10 @@ property_boolean (keep_level, _("Keep the sky level"), TRUE)
                  "the sky keeps its brightness; off: the sky goes to "
                  "black (or to 1)."))
 
-property_enum (output, _("Output"),
-               AstroBackgroundOutput, astro_background_output,
+/* (not "output": that is the name of the output pad, and GIMP's dialog
+ * leaves such a property out) */
+property_enum (show, _("Show"),
+               AstroBackgroundShow, astro_background_show,
                ASTRO_BACKGROUND_CORRECTED)
   description (_("The corrected image, or the fitted background itself."))
 
@@ -568,7 +570,7 @@ process (GeglOperation       *operation,
   gdouble              coef[3][MAX_TERMS];
   gdouble              mean[3] = { 0.0, 0.0, 0.0 };
   gboolean             divide = o->correction == ASTRO_BACKGROUND_DIVIDE;
-  gboolean             model  = o->output == ASTRO_BACKGROUND_MODEL;
+  gboolean             model  = o->show == ASTRO_BACKGROUND_MODEL;
   GeglBufferIterator  *it;
   Cell                *cells;
   gint                 n_cells, degree, c, i, j;

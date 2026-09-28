@@ -311,6 +311,22 @@ check_registration (void)
 
   report ("background_registered", ok && g_strcmp0 (path, "<Image>/Filters/Astronomy") == 0,
           "operation %s, menu %s", ok ? "found" : "missing", path ? path : "none");
+
+  /* no property named like a pad: GIMP's dialog leaves such a one out */
+  if (ok)
+    {
+      guint        n, i;
+      GParamSpec **props = gegl_operation_list_properties ("astro:background", &n);
+      const gchar *clash = NULL;
+
+      for (i = 0; i < n; i++)
+        if (! strcmp (props[i]->name, "input") || ! strcmp (props[i]->name, "output") ||
+            ! strcmp (props[i]->name, "aux"))
+          clash = props[i]->name;
+      report ("background_no_property_named_like_a_pad", clash == NULL, "%u properties%s%s",
+              n, clash ? ", clash: " : "", clash ? clash : "");
+      g_free (props);
+    }
 }
 
 /* a sky without gradient stays as it is */
@@ -360,7 +376,7 @@ static void
 check_gradient_recovery (void)
 {
   Field   f = make_field (1, 600, sky_quadratic, FALSE, 0.0, 0.003);
-  gfloat *model = run (f.image, 0, 0, "astro:background", "output", 1, NULL);
+  gfloat *model = run (f.image, 0, 0, "astro:background", "show", 1, NULL);
   gfloat *corr  = run (f.image, 0, 0, "astro:background", NULL);
   gdouble e = model_error (&f, model), lo = G_MAXDOUBLE, hi = -G_MAXDOUBLE, flux_in = 0, flux_out = 0;
   gdouble level[3] = { 0, 0, 0 };
@@ -406,7 +422,7 @@ check_degrees (void)
   for (d = 1; d <= 4; d++)
     {
       Field   f = make_field (2, 400, sky_quadratic, FALSE, 0.0, 0.003);
-      gfloat *model = run (f.image, 0, 0, "astro:background", "output", 1, "degree", d, NULL);
+      gfloat *model = run (f.image, 0, 0, "astro:background", "show", 1, "degree", d, NULL);
       gdouble e = model_error (&f, model);
       /* degree 1 cannot follow a quadratic; 2 and up can */
       gdouble limit = d == 1 ? 0.25 : 0.03;
@@ -425,7 +441,7 @@ static void
 check_nebula (void)
 {
   Field   f = make_field (3, 500, sky_quadratic, FALSE, 0.06, 0.003);
-  gfloat *model = run (f.image, 0, 0, "astro:background", "output", 1, NULL);
+  gfloat *model = run (f.image, 0, 0, "astro:background", "show", 1, NULL);
   gdouble e = model_error (&f, model);
 
   report ("background_nebula_left_out", e < 0.06,
@@ -505,7 +521,7 @@ check_alpha (void)
   for (i = 0; i < W * H; i++)
     if (i % 7 == 0 && f.image[i * 4 + 3] > 0)
       f.image[i * 4 + 3] = 0.6f;
-  model = run (f.image, 0, 0, "astro:background", "output", 1, NULL);
+  model = run (f.image, 0, 0, "astro:background", "show", 1, NULL);
   corr  = run (f.image, 0, 0, "astro:background", NULL);
   e     = model_error (&f, model);
   for (i = 0; i < W * H; i++)

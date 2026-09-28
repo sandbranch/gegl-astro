@@ -38,7 +38,7 @@ def result(name, ok, msg=''):
 # config takes them by nick, GEGL by number
 ENUMS = {
     'astro:background': {'correction': ['subtract', 'divide'],
-                         'output': ['corrected', 'model']},
+                         'show': ['corrected', 'model']},
 }
 
 TITLE = 'Remove Sky Background'
@@ -47,7 +47,7 @@ CASES = [
     ('background_divide', 'astro:background', TITLE,
      {'correction': 'divide', 'tolerance': 1.5}),
     ('background_model', 'astro:background', TITLE,
-     {'output': 'model', 'degree': 4, 'samples': 10}),
+     {'show': 'model', 'degree': 4, 'samples': 10}),
     ('background_no_level', 'astro:background', TITLE,
      {'keep-level': False, 'degree': 1}),
 ]
