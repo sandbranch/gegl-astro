@@ -36,11 +36,12 @@
  * only gets darker (a scale above 1 at faint pixels would blow up their
  * colour noise).
  *
- * Only the mask's regions are filtered (each with a margin of the
- * radius times the iterations, read from the input, so regions close to
- * each other do not see each other's results). The whole layer is
- * needed for the mask: the operation asks for and caches its whole
- * input and output.
+ * The layer is done in strips of rows, in parallel; each strip reads
+ * its rows and a margin of the disc's reach times the iterations from
+ * the input and filters only where the mask needs it (the mask grown by
+ * the reach of the later passes), so the result does not depend on the
+ * strips. The whole layer is needed for the mask: the operation asks
+ * for and caches its whole input and output.
  */
 
 #include <glib/gi18n-lib.h>
@@ -159,53 +160,228 @@ disc_new (gdouble radius)
   return d;
 }
 
-/* one pass of the rank filter over a w x h plane: rank 0 to 1 of the
- * values in the disc (edges repeated) */
-static void
-rank_pass (const gfloat *src,
-           gfloat       *dst,
-           gint          w,
-           gint          h,
-           const Disc   *d,
-           gdouble       rank,
-           gfloat       *tmp)
+#define STRIP_ROWS 128
+
+typedef struct
 {
-  gint k = (gint) floor (rank * (d->n - 1) + 0.5), x, y, i;
+  GeglBuffer          *input, *output;
+  const Babl          *format;
+  GeglRectangle        box, result;
+  const gfloat        *mask, *sky;
+  Disc                 disc;
+  gdouble              lumk[3], amount, rank;
+  gint                 iterations, step;
+  gboolean             luminance_only;
+} Reduce;
 
-  for (y = 0; y < h; y++)
-    for (x = 0; x < w; x++)
-      {
-        for (i = 0; i < d->n; i++)
-          {
-            gint xx = CLAMP (x + d->dx[i], 0, w - 1), yy = CLAMP (y + d->dy[i], 0, h - 1);
+/* the strip's rows within the result, written from rows of pix (which
+ * start at box row e0) */
+static void
+write_rows (const Reduce *rd,
+            const gfloat *pix,
+            gint          e0,
+            gint          y0,
+            gint          y1)
+{
+  GeglRectangle rows, part;
+  gint          w = rd->box.width;
 
-            tmp[i] = src[yy * w + xx];
-          }
-        dst[y * w + x] = astro_select (tmp, d->n, k);
-      }
+  gegl_rectangle_set (&rows, rd->box.x, rd->box.y + y0, w, y1 - y0);
+  if (! gegl_rectangle_intersect (&part, &rows, &rd->result))
+    return;
+  gegl_buffer_set (rd->output, &part, 0, rd->format,
+                   pix + ((gsize) (part.y - rd->box.y - e0) * w + (part.x - rd->box.x)) * 4,
+                   (gint) (w * 4 * sizeof (gfloat)));
 }
 
-/* the reduced plane, after all passes */
 static void
-reduce_plane (gfloat     *plane,
-              gfloat     *spare,
-              gint        w,
-              gint        h,
-              const Disc *d,
-              gint        method,
-              gdouble     selection,
-              gint        iterations)
+reduce_strip (const Reduce *rd,
+              gint          y0,
+              gint          y1)
 {
-  gfloat *tmp = g_new (gfloat, d->n);
-  gint    it;
+  gint     w = rd->box.width, h = rd->box.height;
+  gint     reach = rd->step * rd->iterations;
+  gint     e0 = MAX (0, y0 - reach), e1 = MIN (h, y1 + reach), eh = e1 - e0;
+  gint     n_planes = rd->luminance_only ? 1 : 3, c, it, x, y, i, k;
+  gint     grow = rd->step * (rd->iterations - 1);
+  gsize    n = (gsize) w * eh, j;
+  gboolean any = FALSE;
+  gfloat  *pix, *cur[3], *nxt[3], *tmp;
+  guint8  *act, *row;
 
-  for (it = 0; it < iterations; it++)
+  for (y = y0; y < y1 && ! any; y++)
+    for (x = 0; x < w; x++)
+      if (rd->mask[(gsize) y * w + x] > 0.0f)
+        {
+          any = TRUE;
+          break;
+        }
+  pix = g_new (gfloat, n * 4);
+  gegl_buffer_get (rd->input, GEGL_RECTANGLE (rd->box.x, rd->box.y + e0, w, eh), 1.0,
+                   rd->format, pix, GEGL_AUTO_ROWSTRIDE, GEGL_ABYSS_NONE);
+  if (! any)
     {
-      rank_pass (plane, spare, w, h, d,
-                 method == ASTRO_REDUCE_EROSION ? 0.0 : selection, tmp);
-      memcpy (plane, spare, (gsize) w * h * sizeof (gfloat));
+      write_rows (rd, pix, e0, y0, y1);
+      g_free (pix);
+      return;
     }
+
+  /* where the filter is needed: the strip's mask, grown by the reach of
+   * the later passes (a square, separably) */
+  act = g_new0 (guint8, n);
+  row = g_new (guint8, MAX (w, eh));
+  for (y = y0; y < y1; y++)
+    for (x = 0; x < w; x++)
+      act[(gsize) (y - e0) * w + x] = rd->mask[(gsize) y * w + x] > 0.0f;
+  if (grow > 0)
+    {
+      for (y = 0; y < eh; y++)
+        {
+          guint8 *a = act + (gsize) y * w;
+          gint    last = -1 - grow;
+
+          memcpy (row, a, w);
+          /* distance to the nearest set pixel on the left, then right */
+          for (x = 0; x < w; x++)
+            {
+              if (row[x])
+                last = x;
+              a[x] = x - last <= grow;
+            }
+          last = w + grow;
+          for (x = w - 1; x >= 0; x--)
+            {
+              if (row[x])
+                last = x;
+              a[x] |= last - x <= grow;
+            }
+        }
+      for (x = 0; x < w; x++)
+        {
+          gint last = -1 - grow;
+
+          for (y = 0; y < eh; y++)
+            row[y] = act[(gsize) y * w + x];
+          for (y = 0; y < eh; y++)
+            {
+              if (row[y])
+                last = y;
+              act[(gsize) y * w + x] = y - last <= grow;
+            }
+          last = eh + grow;
+          for (y = eh - 1; y >= 0; y--)
+            {
+              if (row[y])
+                last = y;
+              act[(gsize) y * w + x] |= last - y <= grow;
+            }
+        }
+    }
+  g_free (row);
+
+  for (c = 0; c < n_planes; c++)
+    {
+      cur[c] = g_new (gfloat, n);
+      nxt[c] = g_new (gfloat, n);
+    }
+  for (j = 0; j < n; j++)
+    {
+      const gfloat *p = pix + j * 4;
+
+      if (rd->luminance_only)
+        cur[0][j] = rd->lumk[0] * p[0] + rd->lumk[1] * p[1] + rd->lumk[2] * p[2];
+      else
+        for (c = 0; c < 3; c++)
+          cur[c][j] = p[c];
+    }
+
+  /* the passes, at the needed pixels only (edges repeated) */
+  tmp = g_new (gfloat, rd->disc.n);
+  k   = (gint) floor (rd->rank * (rd->disc.n - 1) + 0.5);
+  for (it = 0; it < rd->iterations; it++)
+    for (c = 0; c < n_planes; c++)
+      {
+        gfloat *s = cur[c], *d = nxt[c];
+
+        memcpy (d, s, n * sizeof (gfloat));
+        for (y = 0; y < eh; y++)
+          for (x = 0; x < w; x++)
+            {
+              if (! act[(gsize) y * w + x])
+                continue;
+              for (i = 0; i < rd->disc.n; i++)
+                {
+                  gint xx = CLAMP (x + rd->disc.dx[i], 0, w - 1);
+                  gint yy = CLAMP (y + rd->disc.dy[i], 0, eh - 1);
+
+                  tmp[i] = s[(gsize) yy * w + xx];
+                }
+              d[(gsize) y * w + x] = astro_select (tmp, rd->disc.n, k);
+            }
+        cur[c] = d;
+        nxt[c] = s;
+      }
   g_free (tmp);
+
+  /* the strip's own rows, blended by the mask; never below the local sky
+   * (so the noise around a star is not pulled down into a dark ring) */
+  for (y = y0; y < y1; y++)
+    for (x = 0; x < w; x++)
+      {
+        gsize   p = (gsize) y * w + x, q = (gsize) (y - e0) * w + x;
+        gfloat *v = pix + q * 4;
+        gdouble a, l;
+
+        if (! (rd->mask[p] > 0.0f))
+          continue;
+        a = rd->amount * rd->mask[p];
+        l = rd->lumk[0] * v[0] + rd->lumk[1] * v[1] + rd->lumk[2] * v[2];
+        if (rd->luminance_only)
+          {
+            gdouble target = MAX (cur[0][q], rd->sky[p]);
+
+            /* (dark or negative: the scale is not defined, left) */
+            if (l > 1e-9 && target < l)
+              {
+                gdouble f = 1.0 + a * (target / l - 1.0);
+
+                for (c = 0; c < 3; c++)
+                  v[c] *= f;
+              }
+          }
+        else
+          for (c = 0; c < 3; c++)
+            {
+              /* the sky's share of this channel */
+              gdouble floor_c = l > 1e-9 ? v[c] * MIN (1.0, rd->sky[p] / l) : v[c];
+              gdouble target  = MAX (cur[c][q], floor_c);
+
+              if (target < v[c])
+                v[c] += a * (target - v[c]);
+            }
+      }
+  write_rows (rd, pix, e0, y0, y1);
+
+  for (c = 0; c < n_planes; c++)
+    {
+      g_free (cur[c]);
+      g_free (nxt[c]);
+    }
+  g_free (act);
+  g_free (pix);
+}
+
+static void
+reduce_strips (gsize    offset,
+               gsize    size,
+               gpointer data)
+{
+  const Reduce *rd = data;
+  gsize         s;
+
+  for (s = offset; s < offset + size; s++)
+    reduce_strip (rd, (gint) s * STRIP_ROWS,
+                  MIN (rd->box.height, (gint) (s + 1) * STRIP_ROWS));
 }
 
 static gboolean
@@ -219,158 +395,35 @@ process (GeglOperation       *operation,
   const Babl               *format = gegl_operation_get_format (operation, "output");
   const GeglRectangle      *boxp   = gegl_operation_source_get_bounding_box (operation, "input");
   const AstroStarMaskParams params = ASTRO_STAR_MASK_PARAMS (o);
-  gdouble                   amount = o->amount / 100.0;
-  gdouble                   lumk[3];
-  GeglRectangle             box;
   gfloat                   *mask, *sky;
-  guint8                   *seen;
-  gint                      w, h, margin, x, y;
-  Disc                      disc;
-  AstroStack                st = { NULL, 0, 0 };
+  Reduce                    rd;
 
   (void) level;
-  gegl_buffer_copy (input, result, GEGL_ABYSS_NONE, output, result);
-  if (! boxp || boxp->width < 1 || boxp->height < 1 || amount <= 0.0)
-    return TRUE;
-  box  = *boxp;
-  w    = box.width;
-  h    = box.height;
-  mask = astro_star_mask (input, &box, format, &params, NULL, &sky);
-  astro_luminance_coefficients (format, lumk);
-  disc   = disc_new (o->radius);
-  margin = (gint) ceil (o->radius) * o->iterations + 1;
-  seen   = g_new0 (guint8, (gsize) w * h);
+  if (! boxp || boxp->width < 1 || boxp->height < 1 || o->amount <= 0.0)
+    {
+      gegl_buffer_copy (input, result, GEGL_ABYSS_NONE, output, result);
+      return TRUE;
+    }
+  mask = astro_star_mask (input, boxp, format, &params, NULL, &sky);
 
-  /* each connected region of the mask (m > 0), in the order of its
-   * first pixel */
-  for (y = 0; y < h; y++)
-    for (x = 0; x < w; x++)
-      {
-        gsize         i = (gsize) y * w + x, k;
-        gint          x0 = x, x1 = x, y0 = y, y1 = y, rw, rh, c, j;
-        GeglRectangle r;
-        gfloat       *pix, *plane[3], *spare;
-        gint          n_planes;
-
-        if (seen[i] || ! (mask[i] > 0.0f))
-          continue;
-        seen[i] = 1;
-        st.n = 0;
-        astro_push (&st, (gint) i);
-        for (k = 0; k < st.n; k++)
-          {
-            gint p = st.stack[k], px = p % w, py = p / w, dx, dy;
-
-            x0 = MIN (x0, px);
-            x1 = MAX (x1, px);
-            y0 = MIN (y0, py);
-            y1 = MAX (y1, py);
-            for (dy = -1; dy <= 1; dy++)
-              for (dx = -1; dx <= 1; dx++)
-                {
-                  gint xx = px + dx, yy = py + dy;
-                  gsize q;
-
-                  if (xx < 0 || yy < 0 || xx >= w || yy >= h)
-                    continue;
-                  q = (gsize) yy * w + xx;
-                  if (! seen[q] && mask[q] > 0.0f)
-                    {
-                      seen[q] = 1;
-                      astro_push (&st, (gint) q);
-                    }
-                }
-          }
-
-        /* the region with its margin, from the input */
-        x0 = MAX (0, x0 - margin);
-        y0 = MAX (0, y0 - margin);
-        x1 = MIN (w - 1, x1 + margin);
-        y1 = MIN (h - 1, y1 + margin);
-        rw = x1 - x0 + 1;
-        rh = y1 - y0 + 1;
-        gegl_rectangle_set (&r, box.x + x0, box.y + y0, rw, rh);
-        pix = g_new (gfloat, (gsize) rw * rh * 4);
-        gegl_buffer_get (input, &r, 1.0, format, pix, GEGL_AUTO_ROWSTRIDE, GEGL_ABYSS_NONE);
-        n_planes = o->luminance_only ? 1 : 3;
-        for (c = 0; c < n_planes; c++)
-          plane[c] = g_new (gfloat, (gsize) rw * rh);
-        spare = g_new (gfloat, (gsize) rw * rh);
-        for (j = 0; j < rw * rh; j++)
-          {
-            const gfloat *p = pix + (gsize) j * 4;
-
-            if (o->luminance_only)
-              plane[0][j] = lumk[0] * p[0] + lumk[1] * p[1] + lumk[2] * p[2];
-            else
-              for (c = 0; c < 3; c++)
-                plane[c][j] = p[c];
-          }
-        for (c = 0; c < n_planes; c++)
-          reduce_plane (plane[c], spare, rw, rh, &disc, o->method, o->selection,
-                        o->iterations);
-
-        /* the region's own pixels, blended by the mask; never below the
-         * local sky (so the noise around a star is not pulled down into a
-         * dark ring) */
-        for (k = 0; k < st.n; k++)
-          {
-            gint    p = st.stack[k], px = p % w - x0, py = p / w - y0;
-            gsize   q = (gsize) py * rw + px;
-            gfloat *v = pix + q * 4;
-            gdouble a = amount * mask[p];
-            gdouble l = lumk[0] * v[0] + lumk[1] * v[1] + lumk[2] * v[2];
-
-            if (o->luminance_only)
-              {
-                gdouble target = MAX (plane[0][q], sky[p]);
-
-                /* (dark or negative: the scale is not defined, left) */
-                if (l > 1e-9 && target < l)
-                  {
-                    gdouble f = 1.0 + a * (target / l - 1.0);
-
-                    for (c = 0; c < 3; c++)
-                      v[c] *= f;
-                  }
-              }
-            else
-              for (c = 0; c < 3; c++)
-                {
-                  /* the sky's share of this channel */
-                  gdouble floor_c = l > 1e-9 ? v[c] * MIN (1.0, sky[p] / l) : v[c];
-                  gdouble target  = MAX (plane[c][q], floor_c);
-
-                  if (target < v[c])
-                    v[c] += a * (target - v[c]);
-                }
-          }
-        /* written back only where the region is (other pixels of the
-         * rectangle keep what the output has) */
-        {
-          gfloat *cur = g_new (gfloat, (gsize) rw * rh * 4);
-
-          gegl_buffer_get (output, &r, 1.0, format, cur, GEGL_AUTO_ROWSTRIDE, GEGL_ABYSS_NONE);
-          for (k = 0; k < st.n; k++)
-            {
-              gint  p = st.stack[k];
-              gsize q = (gsize) (p / w - y0) * rw + (p % w - x0);
-
-              memcpy (cur + q * 4, pix + q * 4, 3 * sizeof (gfloat));
-            }
-          gegl_buffer_set (output, &r, 0, format, cur, GEGL_AUTO_ROWSTRIDE);
-          g_free (cur);
-        }
-        for (c = 0; c < n_planes; c++)
-          g_free (plane[c]);
-        g_free (spare);
-        g_free (pix);
-      }
-
-  g_free (st.stack);
-  g_free (seen);
-  g_free (disc.dx);
-  g_free (disc.dy);
+  rd.input          = input;
+  rd.output         = output;
+  rd.format         = format;
+  rd.box            = *boxp;
+  rd.result         = *result;
+  rd.mask           = mask;
+  rd.sky            = sky;
+  rd.disc           = disc_new (o->radius);
+  rd.amount         = o->amount / 100.0;
+  rd.rank           = o->method == ASTRO_REDUCE_EROSION ? 0.0 : o->selection;
+  rd.iterations     = o->iterations;
+  rd.step           = (gint) floor (o->radius);
+  rd.luminance_only = o->luminance_only;
+  astro_luminance_coefficients (format, rd.lumk);
+  gegl_parallel_distribute_range ((boxp->height + STRIP_ROWS - 1) / STRIP_ROWS, 1,
+                                  reduce_strips, &rd);
+  g_free (rd.disc.dx);
+  g_free (rd.disc.dy);
   g_free (mask);
   g_free (sky);
   return TRUE;

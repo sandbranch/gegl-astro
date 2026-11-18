@@ -47,3 +47,10 @@ check = executable('check', 'tests/check.c',
   install: false,
 )
 test('operations', check, args: [meson.current_build_dir()], timeout: 600)
+
+# how long the operations take on a 24 megapixel star field: tests/bench.sh
+executable('bench', 'tests/bench.c',
+  dependencies: [gegl_dep, babl_dep, math_dep],
+  c_args: test_c_args,
+  install: false,
+)

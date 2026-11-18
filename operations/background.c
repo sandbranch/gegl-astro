@@ -39,9 +39,15 @@
  * operation asks for and caches its whole input and output. Deterministic:
  * the same pixels give the same result, bit for bit, wherever the layer
  * starts.
+ *
+ * "Leave out stars": the star mask of astro-common.h at its default
+ * settings first; pixels under the mask (> 0) are not sampled, for dense
+ * star fields where the stars fill so much of a cell that its clipped
+ * median rises.
  */
 
 #include <glib/gi18n-lib.h>
+#include "astro-common.h"
 
 #ifdef GEGL_PROPERTIES
 
@@ -84,6 +90,12 @@ property_double (tolerance, _("Tolerance"), 2.0)
   value_range (0.2, 10.0)
   ui_digits (1)
 
+property_boolean (exclude_stars, _("Leave out stars"), FALSE)
+  description (_("Leaves the stars out of each cell's sample, with the "
+                 "star mask of Star Mask at its default settings: for "
+                 "dense star fields (the Milky Way), where stars raise "
+                 "the sky level of a cell. Slower."))
+
 property_boolean (keep_level, _("Keep the sky level"), TRUE)
   description (_("Adds the mean level of the background back after "
                  "subtracting (or multiplies by it after dividing), so "
@@ -125,15 +137,6 @@ typedef struct
 } Cell;
 
 static int
-cmp_float (const void *a,
-           const void *b)
-{
-  gfloat x = *(const gfloat *) a, y = *(const gfloat *) b;
-
-  return (x > y) - (x < y);
-}
-
-static int
 cmp_double (const void *a,
             const void *b)
 {
@@ -142,13 +145,22 @@ cmp_double (const void *a,
   return (x > y) - (x < y);
 }
 
-/* median of v[0..n-1], sorted in place */
+/* median of v[0..n-1], reordered (quickselect of astro-common.h; the
+ * same values as a sort would give) */
 static gfloat
 median_float (gfloat *v,
               gint    n)
 {
-  qsort (v, n, sizeof (gfloat), cmp_float);
-  return n % 2 ? v[n / 2] : 0.5f * (v[n / 2 - 1] + v[n / 2]);
+  gfloat hi = astro_select (v, n, n / 2), lo;
+  gint   i;
+
+  if (n % 2)
+    return hi;
+  /* the largest of the lower half */
+  lo = v[0];
+  for (i = 1; i < n / 2; i++)
+    lo = MAX (lo, v[i]);
+  return 0.5f * (lo + hi);
 }
 
 static gdouble
@@ -340,6 +352,7 @@ measure (GeglBuffer          *input,
          const GeglRectangle *box,
          const Babl          *format,
          gint                 samples,
+         const gfloat        *stars,
          gint                *n_cells_out)
 {
   gint    side = MAX (box->width, box->height);
@@ -348,7 +361,7 @@ measure (GeglBuffer          *input,
   gint    ny = MAX (1, (gint) ceil (box->height / size - 1e-9));
   gint    csize = (gint) ceil (size);
   Cell   *cells = g_new0 (Cell, nx * ny);
-  gfloat *pix = g_new (gfloat, (gsize) csize * csize * 4);
+  gfloat *pix = g_new (gfloat, (gsize) csize * 4);
   gfloat *vals[3], *tmp;
   gint    cx, cy, c;
 
@@ -363,7 +376,7 @@ measure (GeglBuffer          *input,
         gint          x0 = (gint) floor (cx * size), x1 = (gint) floor ((cx + 1) * size);
         gint          y0 = (gint) floor (cy * size), y1 = (gint) floor ((cy + 1) * size);
         GeglRectangle r;
-        gint          step, x, y, n = 0, total = 0;
+        gint          step, x, y, n = 0, total = 0, opaque = 0;
 
         x1 = MIN (x1, box->width);
         y1 = MIN (y1, box->height);
@@ -375,24 +388,31 @@ measure (GeglBuffer          *input,
         if (x1 <= x0 || y1 <= y0)
           continue;
         gegl_rectangle_set (&r, box->x + x0, box->y + y0, x1 - x0, y1 - y0);
-        gegl_buffer_get (input, &r, 1.0, format, pix, GEGL_AUTO_ROWSTRIDE,
-                         GEGL_ABYSS_NONE);
         step = MAX (1, (MAX (r.width, r.height) + MAX_SIDE - 1) / MAX_SIDE);
+        /* only the lattice's rows are read */
         for (y = step / 2; y < r.height; y += step)
-          for (x = step / 2; x < r.width; x += step)
-            {
-              const gfloat *p = pix + ((gsize) y * r.width + x) * 4;
+          {
+            gegl_buffer_get (input, GEGL_RECTANGLE (r.x, r.y + y, r.width, 1), 1.0, format,
+                             pix, GEGL_AUTO_ROWSTRIDE, GEGL_ABYSS_NONE);
+            for (x = step / 2; x < r.width; x += step)
+              {
+                const gfloat *p = pix + (gsize) x * 4;
 
-              total++;
-              if (! (p[3] > 0.5f) || ! isfinite (p[0]) || ! isfinite (p[1]) ||
-                  ! isfinite (p[2]))
-                continue;
-              for (c = 0; c < 3; c++)
-                vals[c][n] = p[c];
-              n++;
-            }
-        /* a cell counts when at least half of it is opaque sky */
-        if (n < 16 || 2 * n < total)
+                total++;
+                if (! (p[3] > 0.5f) || ! isfinite (p[0]) || ! isfinite (p[1]) ||
+                    ! isfinite (p[2]))
+                  continue;
+                opaque++;
+                if (stars && stars[(gsize) (y0 + y) * box->width + x0 + x] > 0.0f)
+                  continue;
+                for (c = 0; c < 3; c++)
+                  vals[c][n] = p[c];
+                n++;
+              }
+          }
+        /* a cell counts when at least half of it is opaque and 16
+         * values are left */
+        if (n < 16 || 2 * opaque < total)
           continue;
         for (c = 0; c < 3; c++)
           cell->level[c] = clipped_median (vals[c], n, tmp);
@@ -556,52 +576,31 @@ get_invalidated_by_change (GeglOperation       *operation,
   return whole_input (operation, roi);
 }
 
-static gboolean
-process (GeglOperation       *operation,
-         GeglBuffer          *input,
-         GeglBuffer          *output,
-         const GeglRectangle *result,
-         gint                 level)
+typedef struct
 {
-  GeglProperties      *o      = GEGL_PROPERTIES (operation);
-  const Babl          *format = gegl_operation_get_format (operation, "output");
-  const GeglRectangle *boxp   = gegl_operation_source_get_bounding_box (operation, "input");
-  GeglRectangle        box;
-  gdouble              coef[3][MAX_TERMS];
-  gdouble              mean[3] = { 0.0, 0.0, 0.0 };
-  gboolean             divide = o->correction == ASTRO_BACKGROUND_DIVIDE;
-  gboolean             model  = o->show == ASTRO_BACKGROUND_MODEL;
-  GeglBufferIterator  *it;
-  Cell                *cells;
-  gint                 n_cells, degree, c, i, j;
+  GeglBuffer          *input, *output;
+  const Babl          *format;
+  const GeglRectangle *box;
+  gdouble            (*coef)[MAX_TERMS];
+  const gdouble       *mean;
+  gint                 degree;
+  gboolean             divide, model, keep_level;
+} Apply;
 
-  (void) level;
-  if (! boxp || boxp->width < 1 || boxp->height < 1)
-    return TRUE;
-  box   = *boxp;
-  cells = measure (input, &box, format, o->samples, &n_cells);
-  reject_bright (cells, n_cells, o->tolerance);
-  degree = surface (cells, n_cells, o->degree, coef);
-  g_free (cells);
+/* the correction over one area (threads by GEGL; each pixel's result
+ * does not depend on the split) */
+static void
+apply_area (const GeglRectangle *area,
+            gpointer             data)
+{
+  const Apply        *ap = data;
+  const GeglRectangle box = *ap->box;
+  gint                degree = ap->degree, c, i;
+  GeglBufferIterator *it;
 
-  if (degree < 0)
-    {
-      /* nothing to fit (a transparent layer): leave the pixels */
-      gegl_buffer_copy (input, result, GEGL_ABYSS_NONE, output, result);
-      return TRUE;
-    }
-
-  /* the mean level of the surface over the layer, on a 64 x 64 lattice */
-  for (j = 0; j < 64; j++)
-    for (i = 0; i < 64; i++)
-      for (c = 0; c < 3; c++)
-        mean[c] += eval (coef[c], degree, (i + 0.5) / 32.0 - 1.0, (j + 0.5) / 32.0 - 1.0);
-  for (c = 0; c < 3; c++)
-    mean[c] /= 64.0 * 64.0;
-
-  it = gegl_buffer_iterator_new (output, result, 0, format,
+  it = gegl_buffer_iterator_new (ap->output, area, 0, ap->format,
                                  GEGL_ACCESS_WRITE, GEGL_ABYSS_NONE, 2);
-  gegl_buffer_iterator_add (it, input, result, 0, format,
+  gegl_buffer_iterator_add (it, ap->input, area, 0, ap->format,
                             GEGL_ACCESS_READ, GEGL_ABYSS_NONE);
   while (gegl_buffer_iterator_next (it))
     {
@@ -627,7 +626,7 @@ process (GeglOperation       *operation,
               memset (rowc[c], 0, sizeof rowc[c]);
               for (d = 0; d <= degree; d++)
                 for (i = d; i >= 0; i--)
-                  rowc[c][i] += coef[c][k++] * vp[d - i];
+                  rowc[c][i] += ap->coef[c][k++] * vp[d - i];
             }
           for (x = 0; x < r->width; x++, in += 4, out += 4)
             {
@@ -640,17 +639,77 @@ process (GeglOperation       *operation,
 
                   for (d = degree - 1; d >= 0; d--)
                     b = b * u + rowc[c][d];
-                  if (model)
+                  if (ap->model)
                     out[c] = b;
-                  else if (divide)
-                    out[c] = b > 1e-6 ? in[c] / b * (o->keep_level ? mean[c] : 1.0) : in[c];
+                  else if (ap->divide)
+                    out[c] = b > 1e-6 ? in[c] / b * (ap->keep_level ? ap->mean[c] : 1.0) : in[c];
                   else
-                    out[c] = in[c] - b + (o->keep_level ? mean[c] : 0.0);
+                    out[c] = in[c] - b + (ap->keep_level ? ap->mean[c] : 0.0);
                 }
               out[3] = in[3];
             }
         }
     }
+}
+
+static gboolean
+process (GeglOperation       *operation,
+         GeglBuffer          *input,
+         GeglBuffer          *output,
+         const GeglRectangle *result,
+         gint                 level)
+{
+  GeglProperties      *o      = GEGL_PROPERTIES (operation);
+  const Babl          *format = gegl_operation_get_format (operation, "output");
+  const GeglRectangle *boxp   = gegl_operation_source_get_bounding_box (operation, "input");
+  GeglRectangle        box;
+  gdouble              coef[3][MAX_TERMS];
+  gdouble              mean[3] = { 0.0, 0.0, 0.0 };
+  gboolean             divide = o->correction == ASTRO_BACKGROUND_DIVIDE;
+  gboolean             model  = o->show == ASTRO_BACKGROUND_MODEL;
+  Cell                *cells;
+  gfloat              *stars = NULL;
+  gint                 n_cells, degree, c, i, j;
+
+  (void) level;
+  if (! boxp || boxp->width < 1 || boxp->height < 1)
+    return TRUE;
+  box   = *boxp;
+  if (o->exclude_stars)
+    {
+      /* the star mask at its default settings (astro-common.h) */
+      const AstroStarMaskParams params = ASTRO_STAR_MASK_DEFAULT_PARAMS;
+
+      stars = astro_star_mask (input, &box, format, &params, NULL, NULL);
+    }
+  cells = measure (input, &box, format, o->samples, stars, &n_cells);
+  g_free (stars);
+  reject_bright (cells, n_cells, o->tolerance);
+  degree = surface (cells, n_cells, o->degree, coef);
+  g_free (cells);
+
+  if (degree < 0)
+    {
+      /* nothing to fit (a transparent layer): leave the pixels */
+      gegl_buffer_copy (input, result, GEGL_ABYSS_NONE, output, result);
+      return TRUE;
+    }
+
+  /* the mean level of the surface over the layer, on a 64 x 64 lattice */
+  for (j = 0; j < 64; j++)
+    for (i = 0; i < 64; i++)
+      for (c = 0; c < 3; c++)
+        mean[c] += eval (coef[c], degree, (i + 0.5) / 32.0 - 1.0, (j + 0.5) / 32.0 - 1.0);
+  for (c = 0; c < 3; c++)
+    mean[c] /= 64.0 * 64.0;
+
+  {
+    Apply ap = { input, output, format, &box, coef, mean, degree, divide, model,
+                 o->keep_level };
+
+    gegl_parallel_distribute_area (result, 4096, GEGL_SPLIT_STRATEGY_HORIZONTAL,
+                                   apply_area, &ap);
+  }
   return TRUE;
 }
 

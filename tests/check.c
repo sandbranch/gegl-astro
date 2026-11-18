@@ -32,12 +32,11 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "modules.h"
+
 #define W 600
 #define H 400
 #define FMT "RGBA float"
-
-static const gchar *const modules[] = { "astro-background", "astro-stretch",
-                                        "astro-star-mask", "astro-star-reduce" };
 
 /* the operations, for the checks that apply to each */
 static const gchar *const ops[] = { "astro:background", "astro:stretch",
@@ -79,59 +78,6 @@ log_handler (const gchar    *domain,
       n_messages++;
       fprintf (stderr, "message from %s: %s\n", domain ? domain : "?", message);
     }
-}
-
-/* Links the modules of the build folder into a folder of their own and
- * points GEGL_PATH there and at GEGL's own operations only, so installed
- * copies are not loaded. */
-static gchar *
-modules_setup (const gchar *build)
-{
-  gchar *dir = g_dir_make_tmp ("astro-modules-XXXXXX", NULL);
-  gchar *path;
-  guint  i;
-
-  if (! dir)
-    return NULL;
-  for (i = 0; i < G_N_ELEMENTS (modules); i++)
-    {
-      gchar *name   = g_strconcat (modules[i], ".so", NULL);
-      gchar *from   = g_build_filename (build, name, NULL);
-      gchar *target = g_canonicalize_filename (from, NULL);
-      gchar *link   = g_build_filename (dir, name, NULL);
-
-      if (symlink (target, link) != 0)
-        {
-          fprintf (stderr, "cannot link %s\n", target);
-          return NULL;
-        }
-      g_free (name);
-      g_free (from);
-      g_free (target);
-      g_free (link);
-    }
-  path = g_strconcat (dir, G_SEARCHPATH_SEPARATOR_S, GEGL_PLUGINSDIR, NULL);
-  g_setenv ("GEGL_PATH", path, TRUE);
-  g_free (path);
-  return dir;
-}
-
-static void
-modules_cleanup (gchar *dir)
-{
-  guint i;
-
-  for (i = 0; i < G_N_ELEMENTS (modules); i++)
-    {
-      gchar *name = g_strconcat (modules[i], ".so", NULL);
-      gchar *link = g_build_filename (dir, name, NULL);
-
-      g_unlink (link);
-      g_free (name);
-      g_free (link);
-    }
-  g_rmdir (dir);
-  g_free (dir);
 }
 
 /* ---- the synthetic field ---------------------------------------------- */
@@ -552,6 +498,60 @@ check_determinism (void)
   free_field (&f);
 }
 
+/* a dense band of stars across the field (like the Milky Way): the
+ * stars raise the clipped medians of the band's cells; leaving them out
+ * with the star mask brings the model back to the sky */
+static void
+check_dense_stars (void)
+{
+  Field   f = make_field (7, 0, sky_quadratic, FALSE, 0.0, 0.003);
+  GRand  *rnd = g_rand_new_with_seed (77);
+  gfloat *plain, *masked;
+  gdouble ep, em, share = 0;
+  gint    i, x, y, c;
+
+  /* 12000 stars, 80 % of them within about 40 px of the diagonal */
+  for (i = 0; i < 12000; i++)
+    {
+      gdouble sx = g_rand_double_range (rnd, 0, W), sy, sigma, peak;
+      gint    rad;
+
+      if (i % 5)
+        sy = sx * H / W + 40.0 * gauss (rnd);
+      else
+        sy = g_rand_double_range (rnd, 0, H);
+      sigma = g_rand_double_range (rnd, 0.8, 2.0);
+      peak  = MIN (0.9, 0.01 * pow (g_rand_double_range (rnd, 1e-3, 1.0), -0.7));
+      rad   = (gint) ceil (4 * sigma);
+      for (y = MAX (0, (gint) sy - rad); y <= MIN (H - 1, (gint) sy + rad); y++)
+        for (x = MAX (0, (gint) sx - rad); x <= MIN (W - 1, (gint) sx + rad); x++)
+          {
+            gdouble dx = x + 0.5 - sx, dy = y + 0.5 - sy;
+            gdouble g = peak * exp (-(dx * dx + dy * dy) / (2 * sigma * sigma));
+
+            for (c = 0; c < 3; c++)
+              {
+                f.stars[(y * W + x) * 3 + c] += g;
+                f.image[(y * W + x) * 4 + c] += g;
+              }
+          }
+    }
+  for (i = 0; i < W * H; i++)
+    share += f.stars[i * 3 + 1] > 0.003;
+  plain   = run (f.image, 0, 0, "astro:background", "show", 1, NULL);
+  masked  = run (f.image, 0, 0, "astro:background", "show", 1, "exclude-stars", TRUE, NULL);
+  ep = model_error (&f, plain);
+  em = model_error (&f, masked);
+  report ("background_dense_stars_left_out", em < 0.5 * ep && em < 0.05,
+          "a band of 9600 stars (%.0f %% of the pixels above the noise): model within "
+          "%.2f %% of the gradient with the stars left out, %.2f %% without (limit 5 %% "
+          "and half)", 100 * share / (W * H), 100 * em, 100 * ep);
+  g_free (plain);
+  g_free (masked);
+  g_rand_free (rnd);
+  free_field (&f);
+}
+
 /* transparent pixels do not count, and alpha is kept */
 static void
 check_alpha (void)
@@ -961,6 +961,7 @@ main (int    argc,
   check_vignetting ();
   check_determinism ();
   check_alpha ();
+  check_dense_stars ();
   check_stretch_default ();
   check_stretch_curves ();
   check_stretch_inverse ();

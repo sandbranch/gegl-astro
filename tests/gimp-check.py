@@ -54,6 +54,8 @@ CASES = [
      {'show': 'model', 'degree': 4, 'samples': 10}),
     ('background_no_level', 'astro:background', TITLE,
      {'keep-level': False, 'degree': 1}),
+    ('background_exclude_stars', 'astro:background', TITLE,
+     {'exclude-stars': True, 'samples': 8}),
     ('stretch_ghs', 'astro:stretch', 'Astro Stretch',
      {'stretch': 4.0, 'local-intensity': 2.0, 'symmetry-point': 0.1,
       'protect-shadows': 0.02, 'protect-highlights': 0.9}),

@@ -44,6 +44,7 @@ Filters > Astronomy > Remove Sky Background...
 | `degree` | int 0 to 4, 2 | total degree of the polynomial |
 | `samples` | int 4 to 64, 16 | cells along the longer side (square cells) |
 | `tolerance` | 0.2 to 10, 2.0 | cells brighter than the median cell by more than this many robust sigmas are left out |
+| `exclude-stars` | bool, false | leave the star mask's pixels (op 2, default settings) out of the cells |
 | `keep-level` | bool, true | add the surface's mean back (or multiply by it) |
 | `show` | corrected / model, corrected | the result or the fitted surface |
 
@@ -68,9 +69,11 @@ it is one Horner evaluation per pixel and channel. No random numbers.
 
 **Next for this op:**
 
-1. Speed on 24 MP (bench as gegl-presence `tests/bench.sh`). Each cell is
-   read whole and then subsampled; reading only the lattice rows would
-   cut the reads by the step factor.
+1. **Done 2026-11-18:** speed on 24 MP (`tests/bench.sh`). Only the
+   lattice rows of each cell are read, medians by quickselect (the same
+   values as the sort, so every test number stayed the same), the
+   correction applied in parallel (`gegl_parallel_distribute_area`).
+   Defaults 0.467 s to 0.122 s; 32 cells, degree 4 1.436 s to 0.373 s.
 2. **RBF surface** (`model` = polynomial / thin plate spline, and a
    `smoothing` property): Siril's thin plate kernel `r^2 log r` with a
    diagonal smoothing term (`docs/research.md` §2.3); solve a system of
@@ -80,8 +83,14 @@ it is one Horner evaluation per pixel and channel. No random numbers.
    to 1 coordinates, saved in the XCF) that replaces the grid, and a
    small plug-in that fills it from GIMP's sample points (Pointer dialog)
    and opens the filter. Open question 4.
-4. Leave out stars before the per-cell median with the shared star mask
-   (op 2), for dense Milky Way fields where most cells hold stars.
+4. **Done 2026-11-18:** `exclude-stars` leaves the pixels under the
+   shared star mask (op 2, its default settings, no extra properties)
+   out of each cell's sample. On a band of 9600 stars across the field
+   (51 % of the pixels above the noise, like the Milky Way) the model is
+   within 3.17 % of the gradient with the stars left out, 21.44 %
+   without. Costs the mask: 1.07 s instead of 0.12 s at 24 MP. A cell
+   counts when half of it is opaque and 16 values are left (stars no
+   longer count against it).
 5. An `amount` (0 to 100 %) for a partial removal.
 
 ### 2. `astro:star-mask`: Star Mask (done 2026-11-18)
@@ -346,14 +355,35 @@ never the user's photos).
   UBSan (`tests/check.sh`). The dialog on Broadway (`tests/gui`).
   Everything through `tests/isolate.sh` with the snapshot of the user's
   folders.
-- Timing on 24 MP (bench), with a target of under 1 s per preview for
-  the point ops and under 3 s for the whole-image ones (open).
+- Timing on 24 MP (`tests/bench.sh`, a synthetic star field of 6000 x
+  4000 with 30000 stars, float, 24 GEGL threads on this machine), with a
+  target of under 1 s per preview for the point ops and under 3 s for
+  the whole-image ones. Measured 2026-11-18:
+
+  | Operation | Time |
+  |---|---|
+  | gegl:gaussian-blur 40 (for scale) | 0.400 s |
+  | Remove Sky Background, defaults | 0.122 s |
+  | Remove Sky Background, 32 cells, degree 4 | 0.373 s |
+  | Remove Sky Background, stars left out | 1.065 s |
+  | Astro Stretch, GHS / arcsinh / automatic points | 0.073 / 0.079 / 0.099 s |
+  | Star Mask, defaults | 1.023 s |
+  | Reduce Stars, defaults | 1.192 s (3.315 s before the strips) |
+  | Reduce Stars, erosion, 2 iterations | 1.314 s |
+
+  Reduce Stars runs in strips of 128 rows in parallel, each reading its
+  rows plus the disc's reach from the input and filtering only where the
+  mask needs it; the result is bit identical to the first version (one
+  region at a time). The star mask's time is mostly its blurs (two at
+  sigma `max-size`) and the single-threaded region pass.
 
 ## Order (proposal)
 
-1. `astro:background` next steps 1, 2, 4 (speed, RBF, star exclusion).
-2. `astro:star-mask` with the shared code, then `astro:star-reduce`.
-3. `astro:stretch` (small, point op).
+1. `astro:background` next steps 1, 2, 4 (speed, RBF, star exclusion):
+   1 and 4 done 2026-11-18, the RBF open.
+2. `astro:star-mask` with the shared code, then `astro:star-reduce`:
+   done 2026-11-18.
+3. `astro:stretch` (small, point op): done 2026-11-18 (built first).
 4. `astro:star-color`.
 5. Hennig's Star Rounding; the points plug-in; hot pixels if asked for.
 

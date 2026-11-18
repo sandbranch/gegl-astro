@@ -33,8 +33,14 @@ by 2.2 %. Large nebulae that fill much of the frame, and gradients that
 change within a few cells (near a horizon), need the planned spline
 surface and sample points (PLAN.md).
 
+"Leave out stars" samples the sky between the stars of the star mask
+(below), for dense star fields such as the Milky Way, where stars fill
+so much of each cell that they raise its sky level: on a synthetic band
+of 9600 stars the model error drops from 21 % to 3 % of the gradient.
+
 The filter needs the whole layer (the fit depends on all of it), so a
-changed setting recomputes the whole layer.
+changed setting recomputes the whole layer: 0.12 s on a 24 megapixel
+image here (1.07 s with the stars left out).
 
 ## Astro Stretch (`astro:stretch`)
 
@@ -76,7 +82,8 @@ changes, the result never goes below the local sky (no dark rings), and
 On synthetic star fields (tests/check-stars.c): every star with a peak
 of at least 12 noise sigmas is found, about 4 false detections per
 megapixel of pure noise; the default reduction takes the stars' FWHM to
-0.87 x, erosion at 100 % to 0.66 x. Both filters need the whole layer.
+0.87 x, erosion at 100 % to 0.66 x. Both filters need the whole layer;
+on 24 megapixels, Star Mask takes 1.0 s and Reduce Stars 1.2 s here.
 
 ## Build and install
 
@@ -123,6 +130,8 @@ apps changed.
   kept through XCF, the same pixels as plain GEGL and the `gegl` command
   line (skipped without the `gegl` command, on Debian and Ubuntu the
   package `gegl`).
+- `tests/bench.sh`: how long each filter takes on a 24 megapixel
+  synthetic star field.
 - `tests/gui/dialogs.sh`: opens each filter's dialog from Search
   Actions in GIMP on a Broadway display and leaves screenshots in
   `tests/output/gui`.

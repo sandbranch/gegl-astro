@@ -76,33 +76,43 @@
 #define ASTRO_DOG_RATIO    4.0
 #define ASTRO_STRIP        128
 
+/* the star mask's default settings */
+#define ASTRO_DEFAULT_THRESHOLD 4.0
+#define ASTRO_DEFAULT_SCALE     1.5
+#define ASTRO_DEFAULT_MAX_SIZE  15.0
+#define ASTRO_DEFAULT_GROW      1.0
+#define ASTRO_DEFAULT_FEATHER   1.5
+#define ASTRO_STAR_MASK_DEFAULT_PARAMS                                         \
+  { ASTRO_DEFAULT_THRESHOLD, ASTRO_DEFAULT_SCALE, ASTRO_DEFAULT_MAX_SIZE,      \
+    ASTRO_DEFAULT_GROW, ASTRO_DEFAULT_FEATHER }
+
 /* The star mask settings, the same in every operation that makes a
  * mask (used inside the GEGL_PROPERTIES part of an operation). */
-#define ASTRO_STAR_MASK_PROPERTIES                                            \
-  property_double (threshold, _("Detection threshold"), 4.0)                \
-    description (_("How far above the noise a star must rise, in noise "    \
-                   "sigmas. Lower finds fainter stars and more noise."))    \
-    value_range (1.0, 100.0)                                                 \
-    ui_range (2.0, 20.0)                                                     \
-    ui_digits (1)                                                            \
-  property_double (scale, _("Star size"), 1.5)                              \
-    description (_("Size of the smallest stars, in pixels (the sigma of "   \
-                   "the detection filter)."))                                \
-    value_range (0.5, 10.0)                                                  \
-    ui_digits (2)                                                            \
-  property_double (max_size, _("Largest star (FWHM)"), 15.0)               \
-    description (_("Structures wider than this at half their peak, in "     \
-                   "pixels, are not stars (nebula knots, galaxy cores)."))  \
-    value_range (2.0, 100.0)                                                 \
-    ui_range (4.0, 50.0)                                                     \
-    ui_digits (0)                                                            \
-  property_double (grow, _("Grow"), 1.0)                                    \
-    description (_("Widens the mask around each star, in pixels."))         \
-    value_range (0.0, 20.0)                                                  \
-    ui_digits (1)                                                            \
-  property_double (feather, _("Feather"), 1.5)                              \
-    description (_("Softens the mask's edge, in pixels (sigma)."))          \
-    value_range (0.0, 20.0)                                                  \
+#define ASTRO_STAR_MASK_PROPERTIES                                             \
+  property_double (threshold, _("Detection threshold"), ASTRO_DEFAULT_THRESHOLD) \
+    description (_("How far above the noise a star must rise, in noise "       \
+                   "sigmas. Lower finds fainter stars and more noise."))       \
+    value_range (1.0, 100.0)                                                   \
+    ui_range (2.0, 20.0)                                                       \
+    ui_digits (1)                                                              \
+  property_double (scale, _("Star size"), ASTRO_DEFAULT_SCALE)                 \
+    description (_("Size of the smallest stars, in pixels (the sigma of "      \
+                   "the detection filter)."))                                  \
+    value_range (0.5, 10.0)                                                    \
+    ui_digits (2)                                                              \
+  property_double (max_size, _("Largest star (FWHM)"), ASTRO_DEFAULT_MAX_SIZE) \
+    description (_("Structures wider than this at half their peak, in "        \
+                   "pixels, are not stars (nebula knots, galaxy cores)."))     \
+    value_range (2.0, 100.0)                                                   \
+    ui_range (4.0, 50.0)                                                       \
+    ui_digits (0)                                                              \
+  property_double (grow, _("Grow"), ASTRO_DEFAULT_GROW)                        \
+    description (_("Widens the mask around each star, in pixels."))            \
+    value_range (0.0, 20.0)                                                    \
+    ui_digits (1)                                                              \
+  property_double (feather, _("Feather"), ASTRO_DEFAULT_FEATHER)               \
+    description (_("Softens the mask's edge, in pixels (sigma)."))             \
+    value_range (0.0, 20.0)                                                    \
     ui_digits (1)
 
 typedef struct
@@ -542,7 +552,7 @@ astro_push (AstroStack *s,
  * gets the number of stars found; sky (may be NULL) a new plane with the
  * local sky's luminance (the luminance blurred at max-size), which the
  * caller frees. */
-static gfloat *
+G_GNUC_UNUSED static gfloat *
 astro_star_mask (GeglBuffer                *input,
                  const GeglRectangle       *box,
                  const Babl                *format,
