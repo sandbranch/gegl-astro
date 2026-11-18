@@ -1,7 +1,8 @@
 # Plan
 
-Status: **skeleton, for review.** One operation exists as a first
-version (`astro:background`, below); the rest is design. The sources
+Status: **in progress.** `astro:background` (first version) and
+`astro:stretch` work; the rest is design. Open questions 1 to 11 have
+defaults chosen 2026-11-18 while David was away (end of this file). The sources
 behind each method and licence note are in `docs/research.md`.
 
 ## Ground rules (from the research)
@@ -148,26 +149,70 @@ near clip in all channels inside a star, the chroma of the ring just
 outside the clipped region, blended by the mask. The core fill is our
 own idea (`docs/research.md` §2.4) and needs a look on real data.
 
-### 5. `astro:stretch`: Astro Stretch
+### 5. `astro:stretch`: Astro Stretch (done 2026-11-18)
 
-Filters > Astronomy > Stretch... (or Colors, open question 1)
+Filters > Astronomy > Stretch... (title "Astro Stretch")
 
-| Property | Default | Meaning |
+| Property | Type, range, default | Meaning |
 |---|---|---|
-| `curve` | ghs | arcsinh / ghs |
-| `black-point` | 0.0 | subtracted and rescaled first |
-| `beta` | 10 | arcsinh strength (Lupton et al. 2004) |
-| `stretch` (ln(D + 1)), `local-intensity` (b), `symmetry-point` (SP), `protect-shadows` (LP), `protect-highlights` (HP) | 0, 0, 0, 0, 1 | the five GHS parameters |
-| `colour` | preserve | preserve (one factor from luminance for all channels) / per channel |
-| `auto` | false | black point and symmetry point from the image's statistics |
+| `curve` | ghs / arcsinh, ghs | the generalised hyperbolic stretch or the arcsinh stretch |
+| `black-point` | 0 to 0.99, 0 | taken off first: `x' = max (0, (x - bp) / (1 - bp))`, clipped to 0 to 1 |
+| `stretch` | 0 to 10, 0 | GHS ln(D + 1) (Siril's range); 0 leaves the image as it is |
+| `local-intensity` | -5 to 15, 0 | GHS b (Siril's range) |
+| `symmetry-point` | 0 to 1, 0 | GHS SP |
+| `protect-shadows` | 0 to 1, 0 | GHS LP, kept at most SP |
+| `protect-highlights` | 0 to 1, 1 | GHS HP, kept at least SP |
+| `inverse` | bool, false | GHS inverse transform (undoes the same stretch) |
+| `beta` | 0 to 1000, 10 | arcsinh strength (Lupton et al. 2004) |
+| `colour` | preserve / per-channel, preserve | one factor from the luminance of the image's RGB space for all channels, or each channel alone |
+| `auto-points` | bool, false | black point and symmetry point from the image (`auto` is a C keyword) |
 
-**Method:** point operation; arcsinh `x' = x * asinh(beta Y) / (Y
-asinh(beta))` on luminance Y; GHS from the published equations (all five
-b cases, mirrored about SP, linear beyond LP and HP, normalised) or
-Siril's `ght.c` (GPL-3.0-or-later): open question 6. **Whole-image part:**
-only `auto` (median and MAD on a lattice, cached); without it a plain
-point filter. Test: against an independent Python implementation of the
-published equations.
+The GHS sliders show only with GHS chosen, `beta` only with arcsinh
+(`ui_meta "visible"`, as gegl-depth-blur).
+
+**Method:** a point operation. GHS: Siril's `ght.c` (`GHTsetup`, `GHT`;
+master `499fd209`, 2026-11-09) ported to double: the forward and the
+inverse transform, all five b cases (b = -1, b < 0, b = 0, b > 0). The
+stretch property is Siril's command value, `D = expm1 (stretch)`
+(`command.c` line 3534). Arcsinh: `asinh (beta x) / asinh (beta)`.
+Preserve colour: curve (Y) / Y times each channel (Lupton); a pixel
+whose largest channel would pass 1 is scaled down whole (Siril's
+"rescale" clip mode), so its hue stays. Alpha kept.
+
+**A bug found in Siril while porting:** in the inverse transform for
+b = -1, Siril sets the transformed symmetry point `SPT = q0 * q`; the
+forward curve at SP gives `-q0 * q` (q0 is negative there), so Siril's
+inverse never takes its lower branch and is wrong below SP (0.066 off at
+0 for b = -1, ln(D+1) = 3, SP = 0.1). Fixed here (`-q0 * q`) and noted in
+the source; found by the check against the published equations. Worth
+reporting to Siril (not done: David's call).
+
+**Whole-image part:** only `auto-points`: the median and robust sigma
+(1.4826 MAD) of the luminance (preserve) or of each channel
+(per-channel), on a fixed lattice of at most 256 x 256 points of the
+whole layer, give `bp = max (0, median - 3 sigma)` and SP where the
+median lands. Then `get_required_for_output` and
+`get_invalidated_by_change` return the whole input; without it the op
+asks only for the region it draws. The factor 3 is our own choice, not
+taken from Siril (Siril's AutoGHS sets SP = median + k sigma with its
+own k and leaves the black point).
+
+**Measured (tests/check.c, tests/stretch-reference.py):** the ramp
+outputs of 20 GHS cases (b from -5 to 15, ln(D+1) up to 10, LP = SP =
+HP, SP = 1, LP and HP out of order, a black point, 5 inverse cases) and
+4 arcsinh cases against an independent Python implementation of the
+published equations (the inverse by bisection of the forward
+equations): largest difference 9.4e-7 (b = 15, ln(D+1) = 10, at SP),
+limit 1e-6; most cases 3e-8. 0 and 1 kept to 3e-17, all 24 curves
+rising; forward then inverse back to 1.8e-6 where the curve is not
+flattened below float resolution; preserve colour: channel ratios kept
+to 1.6e-7, the luminance follows the curve to 1.5e-7, nothing above 1;
+the automatic points agree with the same points set by hand (from the
+whole image's median and MAD) to 0.9 % in the stretched sky median, and
+0.08 % of the pixels go below the black point (Gaussian 3 sigma:
+0.135 %); bit identical for a moved buffer. In GIMP (headless): every
+precision and grayscale, settings through XCF, a layer with offsets, the
+same pixels as the gegl command line.
 
 ### 6. `astro:star-round`: Round Stars (Hennig port, later)
 
@@ -219,8 +264,9 @@ never the user's photos).
     not below the local sky minus 3 noise sigma).
   - star-color: star chroma up by the set share; sky chroma changed by
     < 0.5 % of its noise.
-  - stretch: closed-form values, monotonic, 0 and 1 fixed, GHS against an
-    independent implementation of the published equations to 1e-6.
+  - stretch (done): closed-form values, monotonic, 0 and 1 fixed, GHS
+    against an independent implementation of the published equations to
+    1e-6 (measured: at most 9.4e-7; op 5 above).
 - **Every op:** GIMP 3.2.6 headless (`tests/gimp-check.sh`): NDE filter,
   every precision and grayscale, settings through XCF, the same pixels as
   plain GEGL and the gegl command line, a layer with offsets. ASan and
@@ -238,20 +284,26 @@ never the user's photos).
 4. `astro:star-color`.
 5. Hennig's Star Rounding; the points plug-in; hot pixels if asked for.
 
-## Open questions for you
+## Open questions for you (defaults chosen while David was away)
 
 1. **Menu:** everything under Filters > Astronomy (Hennig's path, one
    place for astro work), or the stretch under Colors next to Curves?
+   **Default chosen 2026-11-18 while David was away; easy to change:** everything under Filters > Astronomy, the stretch too.
 2. **Scope of the first round:** background plus star mask and star
    reduction, as proposed, or something else first?
+   **Default chosen 2026-11-18 while David was away; easy to change:** the proposed first round (background, star mask, star
+   reduction) plus the stretch.
 3. **Star mask as its own op:** each op computes its own mask (GIMP makes
    aux inputs destructive), so op 2 is only for looking and for layer
    masks. Keep it as a visible op, or only inside ops 3 and 4?
+   **Default chosen 2026-11-18 while David was away; easy to change:** keep `astro:star-mask` as a visible op.
 4. **Sample points:** automatic grid only, or also user-placed points (a
    string property plus a small plug-in that reads GIMP's sample points)?
+   **Default chosen 2026-11-18 while David was away; easy to change:** the automatic grid only for now.
 5. **RBF:** is a polynomial of degree up to 4 enough for your images, or
    is the thin plate spline (for local gradients, e.g. near the horizon)
    worth doing soon?
+   **Default chosen 2026-11-18 while David was away; easy to change:** the polynomial now, the RBF later.
 6. **GHS:** decided 2026-11-18: port Siril's `ght.c` (GPL-3.0-or-later,
    compatible), credited in the source and the README.
 7. **Linear or as encoded:** the ops work in linear light. Most images
@@ -259,12 +311,26 @@ never the user's photos).
    gradient is physically right only on linear data; on a stretched
    image a fit in the encoded values may look better. Offer a
    `work-in` choice (linear / as encoded), or keep linear only?
+   **Default chosen 2026-11-18 while David was away; easy to change:** linear only for now. The trade-off: the background fit and
+   the star ops are right on linear data, and wrong in a subtle way on
+   an already stretched image (a gradient there is no longer additive).
+   For `astro:stretch` it also means: the curve maps linear values to
+   linear values, and GIMP then shows them through the image's TRC
+   (sRGB), so the same Siril numbers give a brighter picture here than
+   in Siril, which writes the stretched numbers out as the encoded
+   values. A Siril-identical look needs either an "output as encoded"
+   option on the stretch (input read linear, output written as R'G'B')
+   or lower settings. Not built; decide with real data.
 8. **Real test images:** which ones may be used (CC0 or public domain,
    checked per image), e.g. a few NASA frames, or synthetic only?
+   **Default chosen 2026-11-18 while David was away; easy to change:** synthetic only in the repository.
 9. **Hennig's Align and Merge Layers:** port as GIMP 3 plug-ins, or leave
    alignment and stacking to Siril?
+   **Default chosen 2026-11-18 while David was away; easy to change:** leave alignment and stacking to Siril.
 10. **Names:** "Remove Sky Background" (now), or Siril's "Background
     Extraction", or "Gradient Removal"?
+    **Default chosen 2026-11-18 while David was away; easy to change:** keep "Remove Sky Background".
 11. **Upstream and hosting:** keep as a separate GEGL module repository
     (as gegl-presence), and later offer ops to GEGL, or aim for GEGL from
-    the start? (Nothing is pushed yet.)
+    the start?
+    **Default chosen 2026-11-18 while David was away; easy to change:** a separate repository (github.com/sandbranch/gegl-astro).

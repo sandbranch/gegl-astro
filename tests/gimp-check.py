@@ -39,6 +39,8 @@ def result(name, ok, msg=''):
 ENUMS = {
     'astro:background': {'correction': ['subtract', 'divide'],
                          'show': ['corrected', 'model']},
+    'astro:stretch': {'curve': ['ghs', 'arcsinh'],
+                      'colour': ['preserve', 'per-channel']},
 }
 
 TITLE = 'Remove Sky Background'
@@ -50,6 +52,15 @@ CASES = [
      {'show': 'model', 'degree': 4, 'samples': 10}),
     ('background_no_level', 'astro:background', TITLE,
      {'keep-level': False, 'degree': 1}),
+    ('stretch_ghs', 'astro:stretch', 'Astro Stretch',
+     {'stretch': 4.0, 'local-intensity': 2.0, 'symmetry-point': 0.1,
+      'protect-shadows': 0.02, 'protect-highlights': 0.9}),
+    ('stretch_arcsinh', 'astro:stretch', 'Astro Stretch',
+     {'curve': 'arcsinh', 'beta': 50.0, 'colour': 'per-channel', 'black-point': 0.01}),
+    ('stretch_auto', 'astro:stretch', 'Astro Stretch',
+     {'auto-points': True, 'stretch': 3.0, 'local-intensity': 1.0}),
+    ('stretch_inverse', 'astro:stretch', 'Astro Stretch',
+     {'stretch': 2.0, 'local-intensity': -1.0, 'symmetry-point': 0.2, 'inverse': True}),
 ]
 
 

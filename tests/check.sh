@@ -42,6 +42,11 @@ rm -rf "$out/tmp-check"
 grep -E '^(FAIL|SKIP)|passed,' "$out/check.log" || true
 grep -qE '^[0-9]+ passed, 0 failed' "$out/check.log" || status=1
 
+# astro:stretch against the published equations, written anew in Python
+python3 -I "$here/stretch-reference.py" "$out/build-check/stretch-op.txt" \
+  >"$out/stretch-reference.log" 2>&1 || status=1
+grep -E '^FAIL|passed,|Error' "$out/stretch-reference.log" || status=1
+
 if [ "$1" != quick ]; then
     echo
     echo "== AddressSanitizer and UndefinedBehaviorSanitizer build"
@@ -81,7 +86,7 @@ if [ "$1" != quick ]; then
       /^ *#[0-9]+ / && block != "" {
         if (first && $0 !~ / in (malloc|calloc|realloc|g_malloc|g_malloc0|g_realloc|g_try_malloc|g_malloc_n|g_malloc0_n|g_realloc_n|g_strdup|g_strndup|g_strdup_printf|g_strdup_vprintf|g_memdup2|g_array_[a-z_]*|g_slice_[a-z_]*) /) {
           first = 0
-          if ($0 ~ /(background|check)\.[ch]/) mine = 1
+          if ($0 ~ /\/(operations|tests)\/[a-z-]+\.[ch]/) mine = 1
         }
       }
       END { done(); print n + 0 }' "$out/check-asan.log")

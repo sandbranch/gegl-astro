@@ -5,9 +5,9 @@ gradient removal, star mask, star reduction, star colour and astro
 stretches, as editable (non-destructive) filters under
 **Filters > Astronomy**.
 
-**Status: skeleton.** One operation works as a first version,
-`astro:background` (Remove Sky Background). The others are designed in
-[PLAN.md](PLAN.md), which is up for review before they are built. The
+**Status: in progress.** Working: `astro:background` (Remove Sky
+Background, first version) and `astro:stretch` (Astro Stretch: GHS and
+arcsinh). The others are designed in [PLAN.md](PLAN.md) and being built. The
 research behind it (Georg Hennig's GIMP 2 astronomy plug-ins, Siril,
 the methods, licences, patents) is in [docs/research.md](docs/research.md).
 
@@ -34,6 +34,29 @@ surface and sample points (PLAN.md).
 
 The filter needs the whole layer (the fit depends on all of it), so a
 changed setting recomputes the whole layer.
+
+## Astro Stretch (`astro:stretch`)
+
+Filters > Astronomy > Stretch... brings out the faint parts of linear
+data (a stacked image from Siril or DeepSkyStacker, before any
+stretching):
+
+- **Generalised hyperbolic stretch (GHS)**, with its five settings:
+  stretch (ln (D + 1)), local intensity (b), symmetry point, shadow and
+  highlight protection, and the inverse transform. The maths is ported
+  from Siril's `ght.c`; the same numbers as Siril's GHS command give the
+  same curve.
+- **Arcsinh stretch** (Lupton et al. 2004) with one strength.
+- A black point, and colour kept (one factor from the luminance for all
+  three channels) or each channel stretched alone.
+- Automatic black point and symmetry point from the image's median and
+  noise (then the filter reads the whole layer).
+
+The curves match an independent implementation of the published GHS
+equations to under 1e-6 (tests/stretch-reference.py). The filter works
+in linear light, so on a linear image the result looks brighter than the
+same settings in Siril, which shows its numbers as they are (PLAN.md,
+question 7).
 
 ## Build and install
 
@@ -73,11 +96,16 @@ apps changed.
 - `tests/check.sh`: builds against the system's GEGL and runs the
   numerical checks on synthetic star fields, again under AddressSanitizer
   and UndefinedBehaviorSanitizer (`tests/check.sh quick`: without).
-- `tests/gimp-check.sh`: the filter in the native GIMP without a window:
+  The GHS results are also checked against an independent Python
+  implementation of the published equations (`tests/stretch-reference.py`).
+- `tests/gimp-check.sh`: the filters in the native GIMP without a window:
   a non-destructive filter on every precision and grayscale, settings
   kept through XCF, the same pixels as plain GEGL and the `gegl` command
   line (skipped without the `gegl` command, on Debian and Ubuntu the
   package `gegl`).
+- `tests/gui/dialogs.sh`: opens each filter's dialog from Search
+  Actions in GIMP on a Broadway display and leaves screenshots in
+  `tests/output/gui`.
 - `tests/gui/look.sh [steps]`: GIMP (`--new-instance`) on a Broadway
   display with a generated star field, driven by a headless Chrome
   (`gimp-devtools/gui/cdp.mjs`), leaves a screenshot in
@@ -87,8 +115,17 @@ No test image is a photo: the star fields are generated.
 
 ## Credits and licence
 
-GPL-3.0-or-later (COPYING). The sampling of `astro:background` follows
+GPL-3.0-or-later (COPYING).
+
+The GHS in `astro:stretch` is ported from Siril's `src/filters/ght.c`
+(GPL-3.0-or-later; Copyright (C) 2005-2011 Francois Meyer, Copyright (C)
+2012-2026 team free-astro, <https://siril.org>), with its copyright lines
+kept in `operations/stretch.c`. The GHS equations are by Dave Payne and
+Mike Cranfield (<https://www.ghsastro.co.uk>). The arcsinh stretch follows
+Lupton et al., "Preparing Red-Green-Blue Images from CCD Data" (2004).
+
+The sampling of `astro:background` follows
 Georg Hennig's Background Gradient plug-in (gimp-plugin-astronomy,
 GPL-2.0-or-later) and the sample rejection Siril's background extraction
-(GPL-3.0-or-later); no code of either is copied yet. The test harness
+(GPL-3.0-or-later); no code of either is copied into it. The test harness
 follows gegl-presence.

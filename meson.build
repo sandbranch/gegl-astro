@@ -19,6 +19,7 @@ endif
 # each operation is a module of its own (PLAN.md lists the ones to come)
 operations = {
   'astro-background': ['operations/background.c'],
+  'astro-stretch': ['operations/stretch.c'],
 }
 
 foreach op, sources : operations

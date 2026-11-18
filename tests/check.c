@@ -36,7 +36,13 @@
 #define H 400
 #define FMT "RGBA float"
 
-static const gchar *const modules[] = { "astro-background" };
+static const gchar *const modules[] = { "astro-background", "astro-stretch" };
+
+/* the operations, for the checks that apply to each */
+static const gchar *const ops[] = { "astro:background", "astro:stretch" };
+
+/* the build folder, where checks may leave files for tests/check.sh */
+static const gchar *build_dir;
 
 static gint n_passed, n_failed, n_messages;
 
@@ -252,30 +258,29 @@ free_field (Field *f)
   g_free (f->image);
 }
 
-/* runs op on the pixels (W x H RGBA float at x0, y0) with the properties
- * as name, value pairs (NULL ended), into a new array */
+/* runs op on the pixels (w x h RGBA float at x0, y0) with the
+ * properties as name, value pairs (NULL ended), into a new array */
 static gfloat *
-run (const gfloat *pixels,
-     gint          x0,
-     gint          y0,
-     const gchar  *op,
-     ...)
+run_valist (const gfloat *pixels,
+            gint          w,
+            gint          h,
+            gint          x0,
+            gint          y0,
+            const gchar  *op,
+            va_list       ap)
 {
-  GeglRectangle r = { x0, y0, W, H };
+  GeglRectangle r = { x0, y0, w, h };
   const Babl   *fmt = babl_format (FMT);
   GeglBuffer   *in = gegl_buffer_new (&r, fmt);
   GeglBuffer   *out = NULL;
   GeglNode     *g = gegl_node_new ();
   GeglNode     *src, *node, *sink;
-  gfloat       *res = g_new (gfloat, W * H * 4);
-  va_list       ap;
+  gfloat       *res = g_new (gfloat, (gsize) w * h * 4);
 
   gegl_buffer_set (in, &r, 0, fmt, pixels, GEGL_AUTO_ROWSTRIDE);
   src  = gegl_node_new_child (g, "operation", "gegl:buffer-source", "buffer", in, NULL);
   node = gegl_node_new_child (g, "operation", op, NULL);
-  va_start (ap, op);
   gegl_node_set_valist (node, va_arg (ap, const gchar *), ap);
-  va_end (ap);
   sink = gegl_node_new_child (g, "operation", "gegl:buffer-sink", "buffer", &out, NULL);
   gegl_node_link_many (src, node, sink, NULL);
   gegl_node_process (sink);
@@ -283,6 +288,40 @@ run (const gfloat *pixels,
   g_object_unref (out);
   g_object_unref (g);
   g_object_unref (in);
+  return res;
+}
+
+/* W x H at x0, y0 */
+static gfloat *
+run (const gfloat *pixels,
+     gint          x0,
+     gint          y0,
+     const gchar  *op,
+     ...)
+{
+  va_list ap;
+  gfloat *res;
+
+  va_start (ap, op);
+  res = run_valist (pixels, W, H, x0, y0, op, ap);
+  va_end (ap);
+  return res;
+}
+
+/* any size, at 0, 0 */
+static gfloat *
+run_size (const gfloat *pixels,
+          gint          w,
+          gint          h,
+          const gchar  *op,
+          ...)
+{
+  va_list ap;
+  gfloat *res;
+
+  va_start (ap, op);
+  res = run_valist (pixels, w, h, 0, 0, op, ap);
+  va_end (ap);
   return res;
 }
 
@@ -306,26 +345,37 @@ amplitude (const gfloat *sky)
 static void
 check_registration (void)
 {
-  gboolean ok = gegl_has_operation ("astro:background");
-  const gchar *path = ok ? gegl_operation_get_key ("astro:background", "gimp:menu-path") : NULL;
+  guint k;
 
-  report ("background_registered", ok && g_strcmp0 (path, "<Image>/Filters/Astronomy") == 0,
-          "operation %s, menu %s", ok ? "found" : "missing", path ? path : "none");
-
-  /* no property named like a pad: GIMP's dialog leaves such a one out */
-  if (ok)
+  for (k = 0; k < G_N_ELEMENTS (ops); k++)
     {
-      guint        n, i;
-      GParamSpec **props = gegl_operation_list_properties ("astro:background", &n);
-      const gchar *clash = NULL;
+      const gchar *op = ops[k];
+      const gchar *base = strchr (op, ':') + 1;
+      gboolean     ok = gegl_has_operation (op);
+      const gchar *path = ok ? gegl_operation_get_key (op, "gimp:menu-path") : NULL;
+      gchar       *name = g_strdup_printf ("%s_registered", base);
 
-      for (i = 0; i < n; i++)
-        if (! strcmp (props[i]->name, "input") || ! strcmp (props[i]->name, "output") ||
-            ! strcmp (props[i]->name, "aux"))
-          clash = props[i]->name;
-      report ("background_no_property_named_like_a_pad", clash == NULL, "%u properties%s%s",
-              n, clash ? ", clash: " : "", clash ? clash : "");
-      g_free (props);
+      report (name, ok && g_strcmp0 (path, "<Image>/Filters/Astronomy") == 0,
+              "operation %s, menu %s", ok ? "found" : "missing", path ? path : "none");
+      g_free (name);
+
+      /* no property named like a pad: GIMP's dialog leaves such a one out */
+      if (ok)
+        {
+          guint        n, i;
+          GParamSpec **props = gegl_operation_list_properties (op, &n);
+          const gchar *clash = NULL;
+
+          for (i = 0; i < n; i++)
+            if (! strcmp (props[i]->name, "input") || ! strcmp (props[i]->name, "output") ||
+                ! strcmp (props[i]->name, "aux"))
+              clash = props[i]->name;
+          name = g_strdup_printf ("%s_no_property_named_like_a_pad", base);
+          report (name, clash == NULL, "%u properties%s%s",
+                  n, clash ? ", clash: " : "", clash ? clash : "");
+          g_free (name);
+          g_free (props);
+        }
     }
 }
 
@@ -534,6 +584,350 @@ check_alpha (void)
   free_field (&f);
 }
 
+/* ---- astro:stretch ------------------------------------------------------ */
+
+typedef struct
+{
+  gboolean arcsinh;
+  gdouble  b, stretch, lp, sp, hp, bp, beta;
+  gboolean inverse;
+} StretchCase;
+
+static const StretchCase stretch_cases[] =
+  {
+    /* GHS: b, stretch, LP, SP, HP, BP; inverse */
+    { FALSE,  0.0,  0.0, 0.0,  0.0,  1.0,  0.0,  0, FALSE },   /* identity */
+    { FALSE, -1.0,  3.0, 0.0,  0.1,  1.0,  0.0,  0, FALSE },
+    { FALSE, -5.0,  2.0, 0.02, 0.2,  0.9,  0.0,  0, FALSE },
+    { FALSE, -2.5,  4.0, 0.0,  0.05, 0.8,  0.0,  0, FALSE },
+    { FALSE, -0.5,  5.0, 0.01, 0.1,  1.0,  0.0,  0, FALSE },
+    { FALSE,  0.0,  5.0, 0.0,  0.0,  1.0,  0.0,  0, FALSE },
+    { FALSE,  0.0,  3.0, 0.05, 0.25, 0.7,  0.0,  0, FALSE },
+    { FALSE,  0.5,  6.0, 0.0,  0.02, 1.0,  0.0,  0, FALSE },
+    { FALSE,  1.0,  5.0, 0.01, 0.08, 0.95, 0.0,  0, FALSE },
+    { FALSE,  3.0,  8.0, 0.0,  0.1,  0.9,  0.0,  0, FALSE },
+    { FALSE, 15.0, 10.0, 0.0,  0.05, 1.0,  0.0,  0, FALSE },
+    { FALSE,  2.0,  4.0, 0.3,  0.3,  0.3,  0.0,  0, FALSE },   /* LP = SP = HP */
+    { FALSE,  6.0,  7.0, 0.0,  1.0,  1.0,  0.0,  0, FALSE },   /* SP at 1 */
+    { FALSE,  1.0,  3.0, 0.4,  0.2,  0.1,  0.0,  0, FALSE },   /* LP, HP out of order */
+    { FALSE,  1.0,  4.0, 0.0,  0.05, 1.0,  0.02, 0, FALSE },   /* black point */
+    { FALSE, -1.0,  3.0, 0.0,  0.1,  1.0,  0.0,  0, TRUE },
+    { FALSE, -2.5,  4.0, 0.0,  0.05, 0.8,  0.0,  0, TRUE },
+    { FALSE,  0.0,  3.0, 0.05, 0.25, 0.7,  0.0,  0, TRUE },
+    { FALSE,  1.0,  5.0, 0.01, 0.08, 0.95, 0.0,  0, TRUE },
+    { FALSE,  3.0,  8.0, 0.0,  0.1,  0.9,  0.0,  0, TRUE },
+    /* arcsinh: beta, BP */
+    { TRUE, 0, 0, 0, 0, 0, 0.0,  0.0,    FALSE },
+    { TRUE, 0, 0, 0, 0, 0, 0.0,  10.0,   FALSE },
+    { TRUE, 0, 0, 0, 0, 0, 0.0,  100.0,  FALSE },
+    { TRUE, 0, 0, 0, 0, 0, 0.03, 1000.0, FALSE },
+  };
+
+#define RAMP_N 5120
+
+/* runs a stretch case per channel on a grey ramp; returns the outputs
+ * (channel 0) and fills x with the inputs */
+static gfloat *
+stretch_ramp (const StretchCase *k,
+              gfloat            *x,
+              gboolean           inverse)
+{
+  gfloat *p = g_new (gfloat, RAMP_N * 4), *o, *y = g_new (gfloat, RAMP_N);
+  gdouble sp = MIN (k->sp, 0.99);
+  gint    i;
+
+  for (i = 0; i < RAMP_N; i++)
+    {
+      /* 4096 even steps from 0 to 1, then 1024 around the symmetry point */
+      gfloat v = i < 4096 ? i / 4095.0f : (gfloat) (sp + (i - 4096 - 512) / 512.0 * 0.01);
+
+      v = CLAMP (v, 0.0f, 1.0f);
+      x[i] = v;
+      p[i * 4 + 0] = p[i * 4 + 1] = p[i * 4 + 2] = v;
+      p[i * 4 + 3] = 1.0f;
+    }
+  o = run_size (p, RAMP_N, 1, "astro:stretch", "curve", k->arcsinh ? 1 : 0,
+                "colour", 1, "black-point", k->bp, "stretch", k->stretch,
+                "local-intensity", k->b, "symmetry-point", k->sp,
+                "protect-shadows", k->lp, "protect-highlights", k->hp,
+                "inverse", inverse, "beta", k->beta, NULL);
+  for (i = 0; i < RAMP_N; i++)
+    y[i] = o[i * 4];
+  g_free (o);
+  g_free (p);
+  return y;
+}
+
+/* every case on a ramp: written for tests/stretch-reference.py (the
+ * published equations, written anew in Python) and checked here for 0 and
+ * 1 kept and a rising curve */
+static void
+check_stretch_curves (void)
+{
+  gchar  *path = g_build_filename (build_dir, "stretch-op.txt", NULL);
+  FILE   *f = fopen (path, "w");
+  gfloat *x = g_new (gfloat, RAMP_N);
+  guint   k;
+  gint    i, bad_mono = 0, bad_ends = 0;
+  gdouble worst_end = 0;
+
+  for (k = 0; k < G_N_ELEMENTS (stretch_cases); k++)
+    {
+      const StretchCase *c = &stretch_cases[k];
+      gfloat            *y = stretch_ramp (c, x, c->inverse);
+      gdouble            y0, y1, e;
+      gboolean           mono = TRUE;
+
+      if (f)
+        {
+          if (c->arcsinh)
+            fprintf (f, "case %u arcsinh %.17g %.17g\n", k, c->beta, c->bp);
+          else
+            fprintf (f, "case %u ghs %.17g %.17g %.17g %.17g %.17g %.17g %d\n", k, c->b,
+                     c->stretch, c->lp, c->sp, c->hp, c->bp, c->inverse);
+          for (i = 0; i < RAMP_N; i++)
+            fprintf (f, "%.9g %.9g\n", x[i], y[i]);
+        }
+      /* the even ramp: rising, 0 (or the black point) to 0, 1 to 1 */
+      for (i = 1; i < 4096; i++)
+        if (y[i] < y[i - 1])
+          mono = FALSE;
+      y0 = y[0];
+      y1 = y[4095];
+      e = MAX (fabs (y0), fabs (y1 - 1));
+      worst_end = MAX (worst_end, e);
+      bad_mono += ! mono;
+      bad_ends += e > 1e-6;
+      g_free (y);
+    }
+  if (f)
+    fclose (f);
+  report ("stretch_written_for_reference", f != NULL, "%s", path);
+  report ("stretch_monotonic", bad_mono == 0, "%u cases, %d not rising",
+          (guint) G_N_ELEMENTS (stretch_cases), bad_mono);
+  report ("stretch_0_and_1_kept", bad_ends == 0,
+          "%u cases, largest error at 0 or 1: %.2g", (guint) G_N_ELEMENTS (stretch_cases),
+          worst_end);
+  g_free (x);
+  g_free (path);
+}
+
+/* the inverse undoes the stretch */
+static void
+check_stretch_inverse (void)
+{
+  gfloat *x = g_new (gfloat, RAMP_N);
+  gdouble worst = 0;
+  guint   k;
+  gint    i, n = 0;
+
+  for (k = 1; k < G_N_ELEMENTS (stretch_cases); k++)
+    {
+      const StretchCase *c = &stretch_cases[k];
+      gfloat            *y, *p, *back;
+
+      if (c->arcsinh || c->inverse || c->bp > 0)
+        continue;
+      y = stretch_ramp (c, x, FALSE);
+      p = g_new (gfloat, RAMP_N * 4);
+      for (i = 0; i < RAMP_N; i++)
+        {
+          p[i * 4 + 0] = p[i * 4 + 1] = p[i * 4 + 2] = y[i];
+          p[i * 4 + 3] = 1.0f;
+        }
+      back = run_size (p, RAMP_N, 1, "astro:stretch", "colour", 1, "stretch", c->stretch,
+                       "local-intensity", c->b, "symmetry-point", c->sp,
+                       "protect-shadows", c->lp, "protect-highlights", c->hp,
+                       "inverse", TRUE, NULL);
+      /* only where the stretch did not flatten the curve below float
+       * resolution (the slope of the stretch above 1/64) */
+      for (i = 1; i < 4095; i++)
+        if ((y[i + 1] - y[i - 1]) / (x[i + 1] - x[i - 1]) > 1.0 / 64)
+          worst = MAX (worst, fabs (back[i * 4] - x[i]));
+      n++;
+      g_free (back);
+      g_free (p);
+      g_free (y);
+    }
+  report ("stretch_inverse_undoes", worst < 2e-5,
+          "%d GHS cases forward then inverse: largest error %.2g", n, worst);
+  g_free (x);
+}
+
+/* preserve colour: R:G:B kept, the luminance follows the curve, and a
+ * pixel that would leave 0 to 1 is scaled down whole */
+static void
+check_stretch_colour (void)
+{
+  const gint n = 4000;
+  gfloat    *p = g_new (gfloat, n * 4), *grey = g_new (gfloat, n * 4), *o, *g;
+  GRand     *rnd = g_rand_new_with_seed (11);
+  gdouble    lum[3], ratio = 0, ylum = 0, over = 0;
+  gint       i, c, scaled = 0;
+
+  babl_space_get_rgb_luminance (babl_space ("sRGB"), &lum[0], &lum[1], &lum[2]);
+  for (i = 0; i < n; i++)
+    {
+      gdouble Y = 0;
+
+      for (c = 0; c < 3; c++)
+        {
+          /* most pixels dark, some bright and coloured */
+          p[i * 4 + c] = i < n / 2 ? g_rand_double_range (rnd, 0.0, 0.1)
+                                   : g_rand_double_range (rnd, 0.0, 0.9);
+          Y += lum[c] * p[i * 4 + c];
+        }
+      p[i * 4 + 3] = 1.0f;
+      grey[i * 4 + 0] = grey[i * 4 + 1] = grey[i * 4 + 2] = Y;
+      grey[i * 4 + 3] = 1.0f;
+    }
+  o = run_size (p, n, 1, "astro:stretch", "stretch", 5.0, "local-intensity", 2.0,
+                "symmetry-point", 0.05, NULL);
+  g = run_size (grey, n, 1, "astro:stretch", "stretch", 5.0, "local-intensity", 2.0,
+                "symmetry-point", 0.05, "colour", 1, NULL);
+  for (i = 0; i < n; i++)
+    {
+      gdouble Yo = 0, m = 0, f = 0;
+
+      for (c = 0; c < 3; c++)
+        {
+          Yo += lum[c] * o[i * 4 + c];
+          m = MAX (m, o[i * 4 + c]);
+          if (p[i * 4 + c] > 0.02f)
+            f = o[i * 4 + c] / p[i * 4 + c];
+        }
+      /* the ratios: each channel times the same factor */
+      for (c = 0; c < 3; c++)
+        if (p[i * 4 + c] > 0.02f)
+          ratio = MAX (ratio, fabs (o[i * 4 + c] / p[i * 4 + c] / f - 1));
+      over = MAX (over, m - 1);
+      if (g[i * 4] * MAX (p[i * 4], MAX (p[i * 4 + 1], p[i * 4 + 2])) /
+          grey[i * 4] > 1.0 + 1e-6)
+        scaled++;
+      else
+        ylum = MAX (ylum, fabs (Yo - g[i * 4]));
+    }
+  report ("stretch_preserve_ratios", ratio < 1e-5,
+          "%d pixels: channel ratios kept to %.2g (relative)", n, ratio);
+  report ("stretch_preserve_luminance", ylum < 2e-6,
+          "luminance follows the curve to %.2g (%d pixels scaled down to stay in range)",
+          ylum, scaled);
+  report ("stretch_preserve_in_range", over <= 1e-6 && scaled > 0,
+          "largest channel %.7f above 1, %d pixels scaled", over, scaled);
+  g_free (o);
+  g_free (g);
+  g_free (p);
+  g_free (grey);
+  g_rand_free (rnd);
+}
+
+static int
+cmp_gfloat (const void *a,
+            const void *b)
+{
+  gfloat x = *(const gfloat *) a, y = *(const gfloat *) b;
+
+  return (x > y) - (x < y);
+}
+
+static gdouble
+median_of (const gfloat *img,
+           gint          c)
+{
+  gfloat *v = g_new (gfloat, W * H);
+  gdouble m;
+  gint    i;
+
+  for (i = 0; i < W * H; i++)
+    v[i] = img[i * 4 + c];
+  qsort (v, W * H, sizeof (gfloat), cmp_gfloat);
+  m = v[W * H / 2];
+  g_free (v);
+  return m;
+}
+
+/* the automatic black and symmetry point on a sky of known level and
+ * noise, per channel: like the same settings by hand; whole-image, so the same bits
+ * wherever the layer sits */
+static void
+check_stretch_auto (void)
+{
+  Field   f = make_field (21, 300, sky_vignette, FALSE, 0.0, 0.004);
+  gfloat *a, *b, *m;
+  gdouble ma, mm, zeros = 0;
+  gint    i;
+
+  /* a flat sky of 0.08 instead of the vignetting: the known level */
+  for (i = 0; i < W * H; i++)
+    {
+      gint c;
+
+      for (c = 0; c < 3; c++)
+        f.image[i * 4 + c] = 0.08f + f.stars[i * 3 + c] + f.noise[i * 3 + c];
+    }
+  a = run (f.image, 0, 0, "astro:stretch", "stretch", 6.0, "local-intensity", 3.0,
+           "auto-points", TRUE, "colour", 1, NULL);
+  b = run (f.image, 77, -33, "astro:stretch", "stretch", 6.0, "local-intensity", 3.0,
+           "auto-points", TRUE, "colour", 1, NULL);
+  /* by hand: the median and robust sigma of the whole green channel,
+   * black point 3 sigma below the median, symmetry point at the median */
+  {
+    gfloat *v = g_new (gfloat, W * H);
+    gdouble med, sig, bp;
+
+    for (i = 0; i < W * H; i++)
+      v[i] = f.image[i * 4 + 1];
+    qsort (v, W * H, sizeof (gfloat), cmp_gfloat);
+    med = v[W * H / 2];
+    for (i = 0; i < W * H; i++)
+      v[i] = fabsf (v[i] - (gfloat) med);
+    qsort (v, W * H, sizeof (gfloat), cmp_gfloat);
+    sig = 1.4826 * v[W * H / 2];
+    g_free (v);
+    bp = med - 3 * sig;
+    m = run (f.image, 0, 0, "astro:stretch", "stretch", 6.0, "local-intensity", 3.0,
+             "black-point", bp, "symmetry-point", (med - bp) / (1 - bp), "colour", 1, NULL);
+    printf ("NOTE  stretch_auto: whole image green median %.5f, robust sigma %.5f "
+            "(made with 0.08 and 0.004)\n", med, sig);
+  }
+  ma = median_of (a, 1);
+  mm = median_of (m, 1);
+  for (i = 0; i < W * H; i++)
+    zeros += a[i * 4 + 1] == 0.0f;
+  zeros /= W * H;
+  report ("stretch_auto_like_by_hand", fabs (ma / mm - 1) < 0.02,
+          "sky median after the stretch %.4f, with the points by hand %.4f", ma, mm);
+  /* 3 sigma below the median: 0.13 % of the noise is under the black point */
+  report ("stretch_auto_black_point", zeros > 0.0005 && zeros < 0.003,
+          "%.3f %% of the pixels at 0 (Gaussian noise: 0.135 %%)", 100 * zeros);
+  report ("stretch_auto_offset_invariant", memcmp (a, b, sizeof (gfloat) * W * H * 4) == 0,
+          "buffer at 77, -33 %s", memcmp (a, b, sizeof (gfloat) * W * H * 4) ? "differs" : "identical");
+  g_free (a);
+  g_free (b);
+  g_free (m);
+  free_field (&f);
+}
+
+/* the default settings change nothing (stretch 0), alpha is kept */
+static void
+check_stretch_default (void)
+{
+  Field   f = make_field (22, 300, sky_quadratic, FALSE, 0.0, 0.003);
+  gfloat *o;
+  gdouble d = 0;
+  gint    i;
+
+  for (i = 0; i < W * H; i++)
+    f.image[i * 4 + 3] = (i % 5) / 4.0f;
+  o = run (f.image, 0, 0, "astro:stretch", NULL);
+  for (i = 0; i < W * H * 4; i++)
+    d = MAX (d, fabs (o[i] - ((i % 4) == 3 ? f.image[i] : CLAMP (f.image[i], 0.0f, 1.0f))));
+  report ("stretch_default_unchanged", d < 1e-6,
+          "defaults (stretch 0): max difference %.2g, alpha kept", d);
+  g_free (o);
+  free_field (&f);
+}
+
 int
 main (int    argc,
       char **argv)
@@ -546,6 +940,7 @@ main (int    argc,
       return 2;
     }
   setlocale (LC_ALL, "C");
+  build_dir = argv[1];
   dir = modules_setup (argv[1]);
   if (! dir)
     return 2;
@@ -560,6 +955,11 @@ main (int    argc,
   check_vignetting ();
   check_determinism ();
   check_alpha ();
+  check_stretch_default ();
+  check_stretch_curves ();
+  check_stretch_inverse ();
+  check_stretch_colour ();
+  check_stretch_auto ();
 
   report ("no_warnings_or_criticals", n_messages == 0, "%d", n_messages);
   gegl_exit ();

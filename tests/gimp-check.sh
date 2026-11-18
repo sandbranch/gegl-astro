@@ -20,15 +20,14 @@ build=${BUILD:-tests/output/build-check}
 case $build in /*) ;; *) build=$top/$build ;; esac
 check_out="$out/gimp-check"
 mod="$out/gimp-check-modules"
-# (one operation so far; PLAN.md lists the others)
-# shellcheck disable=SC2043
-for m in astro-background; do
+modules="astro-background astro-stretch"
+for m in $modules; do
     [ -f "$build/$m.so" ] || { echo "no $build/$m.so: run tests/check.sh first" >&2; exit 2; }
 done
 rm -rf "$mod" "$check_out"
 mkdir -p "$mod" "$check_out" "$out/gimp-profile"
 # GEGL loads every file in a module folder: only the modules
-cp "$build"/astro-background.so "$mod/"
+for m in $modules; do cp "$build/$m.so" "$mod/"; done
 
 status=0
 snapshot_begin gimp
