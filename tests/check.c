@@ -36,10 +36,12 @@
 #define H 400
 #define FMT "RGBA float"
 
-static const gchar *const modules[] = { "astro-background", "astro-stretch" };
+static const gchar *const modules[] = { "astro-background", "astro-stretch",
+                                        "astro-star-mask", "astro-star-reduce" };
 
 /* the operations, for the checks that apply to each */
-static const gchar *const ops[] = { "astro:background", "astro:stretch" };
+static const gchar *const ops[] = { "astro:background", "astro:stretch",
+                                    "astro:star-mask", "astro:star-reduce" };
 
 /* the build folder, where checks may leave files for tests/check.sh */
 static const gchar *build_dir;
@@ -928,6 +930,10 @@ check_stretch_default (void)
   free_field (&f);
 }
 
+/* (the shared code of the operations, for checks of its parts) */
+#include "../operations/astro-common.h"
+#include "check-stars.c"
+
 int
 main (int    argc,
       char **argv)
@@ -960,6 +966,15 @@ main (int    argc,
   check_stretch_inverse ();
   check_stretch_colour ();
   check_stretch_auto ();
+  check_blur ();
+  check_star_mask_completeness ();
+  check_star_mask_noise_only ();
+  check_star_mask_nebula ();
+  check_star_mask_misc ();
+  check_star_reduce_fwhm ();
+  check_star_reduce_nebula ();
+  check_star_reduce_rings ();
+  check_star_reduce_misc ();
 
   report ("no_warnings_or_criticals", n_messages == 0, "%d", n_messages);
   gegl_exit ();

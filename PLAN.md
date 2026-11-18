@@ -1,7 +1,8 @@
 # Plan
 
-Status: **in progress.** `astro:background` (first version) and
-`astro:stretch` work; the rest is design. Open questions 1 to 11 have
+Status: **in progress.** `astro:background` (first version),
+`astro:stretch`, `astro:star-mask` and `astro:star-reduce` work; the
+rest is design. Open questions 1 to 11 have
 defaults chosen 2026-11-18 while David was away (end of this file). The sources
 behind each method and licence note are in `docs/research.md`.
 
@@ -83,54 +84,123 @@ it is one Horner evaluation per pixel and channel. No random numbers.
    (op 2), for dense Milky Way fields where most cells hold stars.
 5. An `amount` (0 to 100 %) for a partial removal.
 
-### 2. `astro:star-mask`: Star Mask
+### 2. `astro:star-mask`: Star Mask (done 2026-11-18)
 
 Filters > Astronomy > Star Mask...
 
 A mask of the stars, grey (white = star), to look at, to copy into a
-layer mask, or to guide other GIMP tools. The same code (a shared
-`operations/astro-common.h`) makes the mask inside ops 3 and 4.
+layer mask, or to guide other GIMP tools. The same code (the shared
+`operations/astro-common.h`) makes the mask inside ops 3 and 4, with the
+same five settings (one macro, `ASTRO_STAR_MASK_PROPERTIES`).
 
-| Property | Default | Meaning |
+| Property | Type, range, default | Meaning |
 |---|---|---|
-| `threshold` | 4.0 | detection level in noise sigmas above the local sky |
-| `scale` | 1.5 px | size of the smallest stars (sigma of the detection filter) |
-| `max-size` | 25 px | structures larger than this are not stars (nebula knots, galaxy cores) |
-| `grow` | 1.0 px | dilation of the mask |
-| `feather` | 1.5 px | Gaussian softening of the mask's edge |
-| `show` | mask / overlay | the mask, or the image with the mask in red |
+| `threshold` | 1 to 100, 4.0 | detection level in noise sigmas of the detection filter |
+| `scale` | 0.5 to 10 px, 1.5 | size of the smallest stars (sigma of the detection filter) |
+| `max-size` | 2 to 100 px, 15 | the largest star's FWHM; wider structures are not stars |
+| `grow` | 0 to 20 px, 1.0 | dilation of the mask by a disc |
+| `feather` | 0 to 20 px, 1.5 | Gaussian softening of the mask's edge |
+| `show` | mask / overlay, mask | the mask, or the image with the mask in red |
 
-**Method:** luminance; local sky by a median (or the `astro:background`
-surface) over a radius well above `max-size`; noise sigma by MAD of the
-sky residual on a fixed lattice of the whole image; a difference of
-Gaussians at `scale` against the residual; pixels above `threshold`
-sigma; connected regions larger than `max-size` removed; grow, feather.
-**Whole-image part:** only the noise statistic (whole bounding box for
-the statistic, cached; the rest is an area filter with a margin of the
-sky radius). Hennig has no star mask; the approach follows the published
-PixInsight StarMask description (multiscale, threshold, growth,
-smoothness) without its code.
+**Method (as built; `astro-common.h` has the details):** luminance of
+the image's RGB space; a difference of Gaussians `G(s) * L - G(4 s) * L`
+(smooth sky, gradients and nebulae wider than a few s drop out, and
+stars on a nebula stay separate); its noise by median and MAD on a
+lattice of at most 512 x 512 points; pixels above `threshold` sigmas, in
+8-connected regions; a region is a star when its FWHM (the area at or
+above half its peak in the light above the local sky, as a disc) is at
+most `max-size`; grow, feather. The local sky: L blurred at `max-size`,
+L clipped at that plus 3 sigma, blurred again (so star light hardly
+counts). Blurs are separable, threaded by GEGL, with mirrored edges.
 
-### 3. `astro:star-reduce`: Reduce Stars
+**Changes from the first design, each found by a test:**
+
+- **Whole-image**, not an area filter with a margin: a region's size is
+  only known when all of it is seen. `get_required_for_output`,
+  `get_cached_region`, `get_invalidated_by_change` return the whole
+  layer, `threaded = FALSE` (the blurs thread themselves). Memory: three
+  float planes of the layer at the peak (about 290 MB at 24 MP).
+- **No separate median sky for detection:** the difference of Gaussians
+  needs none.
+- **Size as FWHM, not a second moment in the detection filter:** the
+  filter limits what it sees to about 4 s, so every wide object looked
+  star sized (a nebula knot of sigma 7 px passed). `max-size` is now the
+  largest star's FWHM, default 15 px (was 25 px "structures"). A
+  Gaussian knot of FWHM 18.8 px is left out; one of FWHM 1.1 x
+  `max-size` reads about 10 % smaller than it is (the sky blur at
+  `max-size` takes some of its light), so it is the borderline.
+- **Edges:** with repeated edges a single noisy edge pixel dominated the
+  blur, and false stars lined the image's border (most of the false
+  detections in the first noise test). Now mirrored edges, and the
+  detection filter divided by its own noise factor near the edges,
+  which is exact for white noise and computed from the two kernels.
+
+**Measured (tests/check.c and tests/check-stars.c, 600 x 400 fields with
+a known star list):** at the default threshold 4, stars with a peak of
+12, 20 and 50 noise sigmas and the bright ones: 343 of 343 found; at 8
+sigmas 69 of 86, at 5 sigmas 29 of 86, at 3 sigmas 0 of 85. No false
+regions among 600 stars; on pure noise 4.2 false regions per megapixel
+(about 100 in a 24 MP frame; 171 per megapixel at threshold 3). The
+share of a star's light under the mask, stars at 20 sigmas and up:
+0.893. On a nebula (sigma 60 px, peak 0.15): mean mask away from stars
+0.017; the knot (FWHM 18.8 px) not marked; 25 of 25 stars on the nebula
+found. Transparent pixels never marked; bit identical for a moved
+buffer. The blur matches a plain double sum with mirrored edges to
+5.6e-7 (16 sizes and sigmas, kernels longer than the plane too).
+
+### 3. `astro:star-reduce`: Reduce Stars (done 2026-11-18)
 
 Filters > Astronomy > Reduce Stars...
 
-| Property | Default | Meaning |
+| Property | Type, range, default | Meaning |
 |---|---|---|
-| `amount` | 70 % | blend towards the reduced stars |
-| `radius` | 1.5 px | radius of the round structuring element |
-| `method` | selection | erosion (min) / selection (rank at `selection`) / opening |
-| `selection` | 0.25 | rank quantile: 0 = erosion, 0.5 = median, 1 = dilation (PixInsight's "Morphological Selection" as published) |
-| `iterations` | 1 | 1 to 4 |
-| `luminance-only` | true | shrink the brightness, keep each star's colour |
+| `amount` | 0 to 100 %, 70 | blend towards the reduced stars |
+| `radius` | 0.5 to 8 px, 1.5 | radius of the round structuring element |
+| `method` | erosion / selection, selection | minimum, or the value at rank `selection` |
+| `selection` | 0 to 1, 0.25 | rank quantile: 0 = erosion, 0.5 = median (PixInsight's "Morphological Selection" as published) |
+| `iterations` | 1 to 4, 1 | |
+| `luminance-only` | bool, true | "Keep star colour": shrink the brightness, keep each pixel's colour |
 | star mask settings | as op 2 | `threshold`, `scale`, `max-size`, `grow`, `feather` |
 
-**Method:** star mask m (op 2); rank filter over a disc of `radius`,
-`iterations` times; `out = in + amount * m * (rank - in)`; in
-luminance-only mode the channels are scaled by the new over the old
-luminance (colour kept). Area filter; the mask statistic is
-whole-image as in op 2. The directional variant (Hennig's Star Rounding)
-is op 6.
+**Method:** star mask m (op 2); per connected region of m > 0, the
+region plus a margin of `radius` x `iterations` read from the input;
+rank filter over a disc of `radius`, `iterations` times; `out = in +
+amount * m * (rank - in)`, where `rank` is never taken below the local
+sky of op 2, and only darker values are taken. In luminance-only mode
+the rank filter runs on the luminance and the channels are scaled by the
+new over the old luminance. Outside the mask nothing changes, bit for
+bit.
+
+**Changes from the first design, each found by a test:**
+
+- **The opening is left out:** it flattens a star's peak, so the star
+  got fainter but wider at half maximum (FWHM x 1.30, flux x 0.82 at
+  amount 100).
+- **The sky floor:** erosion of the sky's noise under the mask's edge
+  pulled the ring around each star down (a dark ring): the minimum of
+  the 9 noise values in the disc is on average 1.49 noise sigmas below
+  their mean (computed). Now the result is never below the local sky.
+- **FWHM from the half maximum, not second moments:** the second
+  moments over a disc of 4 star sigmas weight the edge by r^2, so a sky
+  offset of a few thousandths decides them (the darkened noise of an
+  erosion made stars look 25 % smaller; a sky floor 0.0013 above the
+  true sky made them look larger).
+
+**Measured (bright stars and stars at 50 noise sigmas, median):**
+
+| Settings | FWHM after / before | Flux after / before |
+|---|---|---|
+| default: selection 0.25, amount 70, radius 1.5 | 0.866 | 0.653 |
+| erosion, amount 100, radius 1.5 | 0.661 | 0.328 |
+| erosion, amount 100, radius 1.5, 2 iterations | 0.542 | 0.109 |
+
+Outside the mask: no pixel changed (nebula flux outside the mask changed
+by 0 %, limit 0.1 %); away from stars, under the mask's edges too, the
+nebula's flux changed by -0.076 %. No dark rings: the median of the ring
+2 to 6 star sigmas out after erosion at 100 % lies at most 0.30 noise
+sigmas below the sky (noise 1e-4) and 0.24 (noise 0.003), limit 3.
+Keep star colour: R / G of changed pixels kept to 1.2e-7. Amount 0
+changes nothing; bit identical for a moved buffer.
 
 ### 4. `astro:star-color`: Star Colour
 
@@ -255,13 +325,16 @@ never the user's photos).
     vignetting divided out to 0.57 % (limit 3 %); flat sky untouched;
     transparent pixels ignored; bit identical for a moved buffer. Next:
     the share of a nebula's flux removed, against the naive fit.
-  - star-mask: completeness and false detections against the known star
-    list per signal to noise ratio; the share of each star's flux inside
-    the mask.
-  - star-reduce: FWHM before and after from second moments of isolated
-    stars (target ratio per `radius`, `amount`); nebula flux outside the
-    mask unchanged (< 0.1 %); no dark rings (the minimum around a star
-    not below the local sky minus 3 noise sigma).
+  - star-mask (done, op 2): completeness and false detections against
+    the known star list per signal to noise ratio; the share of each
+    star's flux inside the mask.
+  - star-reduce (done, op 3): FWHM before and after of isolated stars
+    (from the half maximum; second moments proved unusable, op 3);
+    nebula flux outside the mask unchanged (< 0.1 %); no dark rings (the
+    median of the ring around a star not below the local sky minus 3
+    noise sigma; the single darkest pixel, as first planned, was below
+    that for 101 of 400 stars after an erosion of the noise, before the
+    sky floor).
   - star-color: star chroma up by the set share; sky chroma changed by
     < 0.5 % of its noise.
   - stretch (done): closed-form values, monotonic, 0 and 1 fixed, GHS

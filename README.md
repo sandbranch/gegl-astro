@@ -6,8 +6,9 @@ stretches, as editable (non-destructive) filters under
 **Filters > Astronomy**.
 
 **Status: in progress.** Working: `astro:background` (Remove Sky
-Background, first version) and `astro:stretch` (Astro Stretch: GHS and
-arcsinh). The others are designed in [PLAN.md](PLAN.md) and being built. The
+Background, first version), `astro:stretch` (Astro Stretch: GHS and
+arcsinh), `astro:star-mask` (Star Mask) and `astro:star-reduce` (Reduce
+Stars). The others are designed in [PLAN.md](PLAN.md) and being built. The
 research behind it (Georg Hennig's GIMP 2 astronomy plug-ins, Siril,
 the methods, licences, patents) is in [docs/research.md](docs/research.md).
 
@@ -57,6 +58,25 @@ equations to under 1e-6 (tests/stretch-reference.py). The filter works
 in linear light, so on a linear image the result looks brighter than the
 same settings in Siril, which shows its numbers as they are (PLAN.md,
 question 7).
+
+## Star Mask (`astro:star-mask`) and Reduce Stars (`astro:star-reduce`)
+
+**Star Mask** marks the stars (white) and nothing else: small,
+concentrated points of light above the noise. Wide structures (nebulae,
+galaxy cores, anything wider than "Largest star" at half its peak) are
+left out, and stars on a nebula are still found. Show it as a grey mask
+(to copy into a layer mask) or in red over the image.
+
+**Reduce Stars** makes the stars smaller and fainter under that mask
+with a morphological filter (erosion, or a gentler rank "selection"),
+so nebulae and galaxies stand out. Outside the mask not a single pixel
+changes, the result never goes below the local sky (no dark rings), and
+"Keep star colour" shrinks the brightness only.
+
+On synthetic star fields (tests/check-stars.c): every star with a peak
+of at least 12 noise sigmas is found, about 4 false detections per
+megapixel of pure noise; the default reduction takes the stars' FWHM to
+0.87 x, erosion at 100 % to 0.66 x. Both filters need the whole layer.
 
 ## Build and install
 

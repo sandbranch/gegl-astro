@@ -20,6 +20,8 @@ endif
 operations = {
   'astro-background': ['operations/background.c'],
   'astro-stretch': ['operations/stretch.c'],
+  'astro-star-mask': ['operations/star-mask.c'],
+  'astro-star-reduce': ['operations/star-reduce.c'],
 }
 
 foreach op, sources : operations

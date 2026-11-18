@@ -41,6 +41,8 @@ ENUMS = {
                          'show': ['corrected', 'model']},
     'astro:stretch': {'curve': ['ghs', 'arcsinh'],
                       'colour': ['preserve', 'per-channel']},
+    'astro:star-mask': {'show': ['mask', 'overlay']},
+    'astro:star-reduce': {'method': ['erosion', 'selection']},
 }
 
 TITLE = 'Remove Sky Background'
@@ -61,6 +63,12 @@ CASES = [
      {'auto-points': True, 'stretch': 3.0, 'local-intensity': 1.0}),
     ('stretch_inverse', 'astro:stretch', 'Astro Stretch',
      {'stretch': 2.0, 'local-intensity': -1.0, 'symmetry-point': 0.2, 'inverse': True}),
+    ('star_mask', 'astro:star-mask', 'Star Mask', {'threshold': 5.0}),
+    ('star_mask_overlay', 'astro:star-mask', 'Star Mask',
+     {'show': 'overlay', 'grow': 2.0, 'max-size': 10.0}),
+    ('star_reduce', 'astro:star-reduce', 'Reduce Stars', {'amount': 80.0}),
+    ('star_reduce_erosion', 'astro:star-reduce', 'Reduce Stars',
+     {'method': 'erosion', 'iterations': 2, 'luminance-only': False, 'feather': 2.5}),
 ]
 
 
