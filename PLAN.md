@@ -74,11 +74,37 @@ it is one Horner evaluation per pixel and channel. No random numbers.
    values as the sort, so every test number stayed the same), the
    correction applied in parallel (`gegl_parallel_distribute_area`).
    Defaults 0.467 s to 0.122 s; 32 cells, degree 4 1.436 s to 0.373 s.
-2. **RBF surface** (`model` = polynomial / thin plate spline, and a
-   `smoothing` property): Siril's thin plate kernel `r^2 log r` with a
-   diagonal smoothing term (`docs/research.md` §2.3); solve a system of
-   the size of the used cells (at most 4096; dense Cholesky is fine up to
-   about 1000, so a coarser grid or a smaller system for the RBF).
+2. **RBF surface: tried 2026-11-18, not shipped** (branch
+   `spline-experiment`, with the probes in `tests/probes`). A smoothing
+   thin plate spline (r^2 log r, terms 1, x, y, the smoothing on
+   Siril's scale) through the cells, at most 32 per side, cells dropped
+   when far from a plane through their 3 x 3 neighbours (a spline
+   leaves no residuals to reject by), evaluated on an 8 px grid. The
+   spline matched an independent numpy one (2.02 % at a corner of a
+   noise-free quadratic, where cells start half a cell in: corners are
+   extrapolated). Against the degree 4 polynomial on synthetic scenes
+   with noise 0.003 (max and mean model error, share of the sky's
+   amplitude):
+
+   | Scene | Polynomial 4 | Spline | Both with tolerance 10 |
+   |---|---|---|---|
+   | horizon band (exp, 60 px) | 11.6 / 0.61 % | 41.3 / 2.77 % | 2.64 / 0.46 % vs 14.7 / 2.85 % |
+   | nebula (sigma 55 px, as the gradient) | 6.46 / 2.08 % | 28.7 / 4.50 % | the same |
+
+   The local rejection drops strongly curved cells (the band), and
+   without it the spline follows nebulae. It needs better samples
+   (user points, item 3, or samples placed away from bright areas, as
+   Siril's automatic mode) before it can win. Left for later.
+
+   **Found on the way, for the polynomial:** the bright cell rejection
+   (`tolerance` 2) drops a strong light dome's own cells. A dome from
+   beyond a corner (falling to 1/e in 0.3 widths): degree 4 within
+   19.8 % (max) at tolerance 2, 7.7 % at 5, 4.0 % at 10; the horizon
+   band 11.6 % at 2, 2.64 % at 5. The nebula (degree 2) is the same at
+   tolerance 2 and 5 (2.61 %). So for strong light pollution a higher
+   tolerance with degree 3 or 4 works better; the dialog's text could
+   say so, or the default could move to about 5 (not changed: decide
+   with real images).
 3. **User sample points:** a `points` string property (`"u,v;u,v"` in 0
    to 1 coordinates, saved in the XCF) that replaces the grid, and a
    small plug-in that fills it from GIMP's sample points (Pointer dialog)
@@ -380,7 +406,8 @@ never the user's photos).
 ## Order (proposal)
 
 1. `astro:background` next steps 1, 2, 4 (speed, RBF, star exclusion):
-   1 and 4 done 2026-11-18, the RBF open.
+   1 and 4 done 2026-11-18; the RBF tried and not shipped (it lost to
+   the polynomial on every synthetic scene; item 2 above).
 2. `astro:star-mask` with the shared code, then `astro:star-reduce`:
    done 2026-11-18.
 3. `astro:stretch` (small, point op): done 2026-11-18 (built first).
@@ -407,6 +434,8 @@ never the user's photos).
    is the thin plate spline (for local gradients, e.g. near the horizon)
    worth doing soon?
    **Default chosen 2026-11-18 while David was away; easy to change:** the polynomial now, the RBF later.
+   (Tried anyway: it lost to the polynomial on synthetic scenes, see op 1
+   item 2; it needs better sampling first.)
 6. **GHS:** decided 2026-11-18: port Siril's `ght.c` (GPL-3.0-or-later,
    compatible), credited in the source and the README.
 7. **Linear or as encoded:** the ops work in linear light. Most images
