@@ -40,7 +40,8 @@
 
 /* the operations, for the checks that apply to each */
 static const gchar *const ops[] = { "astro:background", "astro:stretch",
-                                    "astro:star-mask", "astro:star-reduce" };
+                                    "astro:star-mask", "astro:star-reduce",
+                                    "astro:star-color" };
 
 /* the build folder, where checks may leave files for tests/check.sh */
 static const gchar *build_dir;
@@ -976,6 +977,8 @@ main (int    argc,
   check_star_reduce_nebula ();
   check_star_reduce_rings ();
   check_star_reduce_misc ();
+  check_star_color ();
+  check_star_color_cores ();
 
   report ("no_warnings_or_criticals", n_messages == 0, "%d", n_messages);
   gegl_exit ();

@@ -31,7 +31,8 @@
 #include <unistd.h>
 
 static const gchar *const modules[] = { "astro-background", "astro-stretch",
-                                        "astro-star-mask", "astro-star-reduce" };
+                                        "astro-star-mask", "astro-star-reduce",
+                                        "astro-star-color" };
 
 /* Links the modules of the build folder into a folder of their own and
  * points GEGL_PATH there and at GEGL's own operations only, so installed

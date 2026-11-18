@@ -644,3 +644,133 @@ check_star_reduce_misc (void)
   g_free (z);
   star_field_free (f);
 }
+
+/* ---- astro:star-color --------------------------------------------------- */
+
+/* the chroma of a pixel about its luminance (sRGB coefficients, as the
+ * test buffers are in sRGB's primaries) */
+static gdouble
+chroma (const gfloat *p,
+        gdouble      *y)
+{
+  static gdouble k[3] = { -1, 0, 0 };
+  gdouble        l, s = 0;
+  gint           c;
+
+  if (k[0] < 0)
+    babl_space_get_rgb_luminance (babl_space ("sRGB"), &k[0], &k[1], &k[2]);
+  l = k[0] * p[0] + k[1] * p[1] + k[2] * p[2];
+  for (c = 0; c < 3; c++)
+    s += (p[c] - l) * (p[c] - l);
+  if (y)
+    *y = l;
+  return sqrt (s);
+}
+
+static void
+check_star_color (void)
+{
+  StarField *f = star_field (61, 24, 0.003, 0.05, 0.3);
+  gfloat    *o = run (f->image, 0, 0, "astro:star-color", "fill-cores", FALSE, NULL);
+  gfloat    *m = run (f->image, 0, 0, "astro:star-mask", NULL);
+  gfloat    *z = run (f->image, 0, 0, "astro:star-color", "saturation", 0.0,
+                      "fill-cores", FALSE, NULL);
+  gfloat    *b = run (f->image, 33, 71, "astro:star-color", NULL);
+  gfloat    *a = run (f->image, 0, 0, "astro:star-color", NULL);
+  gdouble    dy = 0, rel = 0, sky_change = 0, d0 = 0, outside = 0;
+  gint       i, n = 0, ns = 0;
+
+  for (i = 0; i < W * H; i++)
+    {
+      gdouble y0, y1, c0 = chroma (f->image + i * 4, &y0), c1 = chroma (o + i * 4, &y1);
+      gint    c;
+
+      dy = MAX (dy, fabs (y1 - y0));
+      if (f->stars[i] < 0.1 * f->noise)
+        {
+          sky_change += fabs (c1 - c0);
+          ns++;
+        }
+      if (m[i * 4] == 0.0f)
+        for (c = 0; c < 4; c++)
+          outside = MAX (outside, fabs (o[i * 4 + c] - f->image[i * 4 + c]));
+      for (c = 0; c < 4; c++)
+        d0 = MAX (d0, fabs (z[i * 4 + c] - f->image[i * 4 + c]));
+    }
+  /* star centres (20 sigmas and up): the chroma up by 50 % times the mask */
+  for (i = 0; i < f->n; i++)
+    {
+      const Star *st = &f->star[i];
+      gint        j = (gint) st->y * W + (gint) st->x;
+      gdouble     want;
+
+      if (st->cls >= 0 && snr_class[st->cls] < 20)
+        continue;
+      want = 1.0 + 0.5 * m[j * 4];
+      rel  = MAX (rel, fabs (chroma (o + j * 4, NULL) / chroma (f->image + j * 4, NULL) / want - 1));
+      n++;
+    }
+  report ("star_color_chroma_up", rel < 0.02,
+          "%d star centres: chroma times 1 + 50 %% x mask to %.2g (relative; limit 2 %%)", n, rel);
+  report ("star_color_luminance_kept", dy < 1e-6, "largest change of luminance %.2g", dy);
+  report ("star_color_sky_chroma", sky_change / ns < 0.005 * f->noise,
+          "mean change of the sky's chroma away from stars %.2g = %.3f %% of the noise "
+          "(limit 0.5 %%)", sky_change / ns, 100 * sky_change / ns / f->noise);
+  report ("star_color_outside_mask_unchanged", outside == 0, "largest change %.2g", outside);
+  report ("star_color_saturation_0_unchanged", d0 == 0, "largest change %.2g", d0);
+  report ("star_color_offset_invariant", memcmp (a, b, sizeof (gfloat) * W * H * 4) == 0,
+          "buffer at 33, 71 %s", memcmp (a, b, sizeof (gfloat) * W * H * 4) ? "differs" : "identical");
+  g_free (o);
+  g_free (m);
+  g_free (z);
+  g_free (a);
+  g_free (b);
+  star_field_free (f);
+}
+
+/* a bright star clipped to white in its core, with a red halo: the core
+ * takes the halo's colour */
+static void
+check_star_color_cores (void)
+{
+  gfloat *p = g_new (gfloat, W * H * 4), *o;
+  GRand  *rnd = g_rand_new_with_seed (62);
+  gdouble core_rb = 0, halo_rb = 0, before = 0;
+  gint    i, x, y, nc = 0, nh = 0;
+
+  for (y = 0; y < H; y++)
+    for (x = 0; x < W; x++)
+      {
+        gdouble dx = x + 0.5 - 300, dy = y + 0.5 - 200;
+        gdouble g = 3.0 * exp (-(dx * dx + dy * dy) / (2 * 2.5 * 2.5));
+        gfloat *q = p + (y * W + x) * 4;
+
+        q[0] = MIN (1.0, 0.05 + 1.3 * g + 0.002 * gauss (rnd));
+        q[1] = MIN (1.0, 0.05 + 1.0 * g + 0.002 * gauss (rnd));
+        q[2] = MIN (1.0, 0.05 + 0.6 * g + 0.002 * gauss (rnd));
+        q[3] = 1.0f;
+      }
+  o = run (p, 0, 0, "astro:star-color", "saturation", 0.0, NULL);
+  for (i = 0; i < W * H; i++)
+    {
+      const gfloat *q = p + i * 4;
+
+      if (q[0] >= 0.95f && q[1] >= 0.95f && q[2] >= 0.95f)
+        {
+          core_rb += o[i * 4] / o[i * 4 + 2];
+          before  += q[0] / q[2];
+          nc++;
+        }
+      else if (q[1] > 0.3f && q[0] < 0.95f)
+        {
+          halo_rb += q[0] / q[2];
+          nh++;
+        }
+    }
+  report ("star_color_core_filled", nc > 0 && core_rb / nc > 1.3,
+          "%d clipped core pixels: R / B %.2f before, %.2f after (the unclipped halo: %.2f)",
+          nc, before / MAX (nc, 1), core_rb / MAX (nc, 1), halo_rb / MAX (nh, 1));
+  g_free (o);
+  g_free (p);
+  g_rand_free (rnd);
+}

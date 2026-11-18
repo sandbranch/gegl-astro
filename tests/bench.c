@@ -138,6 +138,7 @@ main (int    argc,
       { "astro:star-mask", "", "Star Mask, defaults" },
       { "astro:star-reduce", "", "Reduce Stars, defaults" },
       { "astro:star-reduce", "method=erosion amount=100 iterations=2", "Reduce Stars, erosion, 2 iterations" },
+      { "astro:star-color", "", "Star Colour, defaults" },
     };
   gchar      *dir;
   GeglBuffer *img;

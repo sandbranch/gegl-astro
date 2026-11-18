@@ -43,6 +43,7 @@ ENUMS = {
                       'colour': ['preserve', 'per-channel']},
     'astro:star-mask': {'show': ['mask', 'overlay']},
     'astro:star-reduce': {'method': ['erosion', 'selection']},
+    'astro:star-color': {},
 }
 
 TITLE = 'Remove Sky Background'
@@ -71,6 +72,9 @@ CASES = [
     ('star_reduce', 'astro:star-reduce', 'Reduce Stars', {'amount': 80.0}),
     ('star_reduce_erosion', 'astro:star-reduce', 'Reduce Stars',
      {'method': 'erosion', 'iterations': 2, 'luminance-only': False, 'feather': 2.5}),
+    ('star_color', 'astro:star-color', 'Star Colour', {'saturation': 120.0}),
+    ('star_color_no_cores', 'astro:star-color', 'Star Colour',
+     {'fill-cores': False, 'background': 0.0, 'threshold': 6.0}),
 ]
 
 

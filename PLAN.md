@@ -1,8 +1,8 @@
 # Plan
 
 Status: **in progress.** `astro:background` (first version),
-`astro:stretch`, `astro:star-mask` and `astro:star-reduce` work; the
-rest is design. Open questions 1 to 11 have
+`astro:stretch`, `astro:star-mask`, `astro:star-reduce` and
+`astro:star-color` work; ops 6 and 7 and the plug-ins are design. Open questions 1 to 11 have
 defaults chosen 2026-11-18 while David was away (end of this file). The sources
 behind each method and licence note are in `docs/research.md`.
 
@@ -237,22 +237,41 @@ sigmas below the sky (noise 1e-4) and 0.24 (noise 0.003), limit 3.
 Keep star colour: R / G of changed pixels kept to 1.2e-7. Amount 0
 changes nothing; bit identical for a moved buffer.
 
-### 4. `astro:star-color`: Star Colour
+### 4. `astro:star-color`: Star Colour (done 2026-11-18)
 
 Filters > Astronomy > Star Colour...
 
-| Property | Default | Meaning |
+| Property | Type, range, default | Meaning |
 |---|---|---|
-| `saturation` | 50 % | chroma boost inside the star mask |
-| `background` | 1.0 | Siril's background factor: pixels darker than `(median + sigma) * background` stay as they are |
-| `fill-cores` | true | clipped white cores take the colour of the star's halo |
+| `saturation` | 0 to 300 %, 50 | chroma boost inside the star mask |
+| `background` | 0 to 10, 1.0 | Siril's background factor: pixels darker than `(median + sigma) * background` stay as they are (0: everything under the mask) |
+| `fill-cores` | bool, true | clipped white cores take the colour of the star's halo |
 | star mask settings | as op 2 | |
 
-**Method:** chroma scaled (in the linear ratio space of gegl-presence, or
-CIE LCh: open) by `1 + saturation * m`; `fill-cores`: for pixels at or
-near clip in all channels inside a star, the chroma of the ring just
-outside the clipped region, blended by the mask. The core fill is our
-own idea (`docs/research.md` §2.4) and needs a look on real data.
+**Method:** each pixel's chroma in linear RGB, `c - Y` (Y its luminance
+in the image's RGB space), times `1 + saturation * m * b`, so Y stays
+exactly; the factor is limited so that no channel goes below 0. b: 0
+below `(median + sigma) * background` (median and robust sigma of the
+luminance on a lattice), rising to 1 over one more sigma (Siril's
+saturation switches hard; `src/filters/saturation.c` read, written anew
+here). The open question "linear ratio space or CIE LCh" is settled as
+linear RGB about the luminance (the luminance is kept by construction).
+`fill-cores` (our own idea, needs a look on real data): each region
+under the mask with all channels at 0.95 or above takes the mean
+chromaticity `c / Y` of the unclipped pixels within 2 px of it, scaled
+so that its largest channel keeps its value, blended by the mask. Strips
+of 128 rows in parallel; the clipped regions in a first pass;
+whole-image (mask, statistics).
+
+**Measured (tests/check-stars.c):** 171 star centres (20 sigmas and up)
+get their chroma times `1 + 50 % x mask` to 2.1e-7; the luminance
+changes by at most 4.4e-8 (without the core fill); the sky's chroma away
+from stars changes by 0.209 % of the noise on average (limit 0.5 %;
+under the feathered mask's edge noise above the background level is
+boosted a little); outside the mask nothing changes; saturation 0
+changes nothing; bit identical for a moved buffer. A star clipped to
+white in its core (R / B 1.01) with a red halo (unclipped halo R / B
+1.98): the core goes to R / B 1.81.
 
 ### 5. `astro:stretch`: Astro Stretch (done 2026-11-18)
 
@@ -370,8 +389,8 @@ never the user's photos).
     noise sigma; the single darkest pixel, as first planned, was below
     that for 101 of 400 stars after an erosion of the noise, before the
     sky floor).
-  - star-color: star chroma up by the set share; sky chroma changed by
-    < 0.5 % of its noise.
+  - star-color (done, op 4): star chroma up by the set share; sky chroma
+    changed by < 0.5 % of its noise.
   - stretch (done): closed-form values, monotonic, 0 and 1 fixed, GHS
     against an independent implementation of the published equations to
     1e-6 (measured: at most 9.4e-7; op 5 above).
@@ -396,6 +415,7 @@ never the user's photos).
   | Star Mask, defaults | 1.023 s |
   | Reduce Stars, defaults | 1.192 s (3.315 s before the strips) |
   | Reduce Stars, erosion, 2 iterations | 1.314 s |
+  | Star Colour, defaults | 1.089 s |
 
   Reduce Stars runs in strips of 128 rows in parallel, each reading its
   rows plus the disc's reach from the input and filtering only where the
@@ -411,7 +431,7 @@ never the user's photos).
 2. `astro:star-mask` with the shared code, then `astro:star-reduce`:
    done 2026-11-18.
 3. `astro:stretch` (small, point op): done 2026-11-18 (built first).
-4. `astro:star-color`.
+4. `astro:star-color`: done 2026-11-18.
 5. Hennig's Star Rounding; the points plug-in; hot pixels if asked for.
 
 ## Open questions for you (defaults chosen while David was away)

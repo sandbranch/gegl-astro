@@ -7,8 +7,8 @@ stretches, as editable (non-destructive) filters under
 
 **Status: in progress.** Working: `astro:background` (Remove Sky
 Background, first version), `astro:stretch` (Astro Stretch: GHS and
-arcsinh), `astro:star-mask` (Star Mask) and `astro:star-reduce` (Reduce
-Stars). The others are designed in [PLAN.md](PLAN.md) and being built. The
+arcsinh), `astro:star-mask` (Star Mask), `astro:star-reduce` (Reduce
+Stars) and `astro:star-color` (Star Colour). The others are designed in [PLAN.md](PLAN.md) and being built. The
 research behind it (Georg Hennig's GIMP 2 astronomy plug-ins, Siril,
 the methods, licences, patents) is in [docs/research.md](docs/research.md).
 
@@ -85,6 +85,17 @@ megapixel of pure noise; the default reduction takes the stars' FWHM to
 0.87 x, erosion at 100 % to 0.66 x. Both filters need the whole layer;
 on 24 megapixels, Star Mask takes 1.0 s and Reduce Stars 1.2 s here.
 
+## Star Colour (`astro:star-color`)
+
+Filters > Astronomy > Star Colour... raises the stars' saturation under
+the same star mask while keeping each pixel's brightness exactly; pixels
+darker than the sky's median plus a sigma (times a factor, as in Siril)
+stay as they are, so the sky's noise does not get coloured. "Fill
+clipped cores" gives the white, clipped cores of bright stars the colour
+of the ring around them (our own idea; it needs a look on real images).
+On synthetic fields the star chroma goes up by exactly the set share and
+the sky's chroma moves by 0.2 % of its noise; 1.1 s on 24 megapixels.
+
 ## Build and install
 
 Needs GEGL 0.4.62 or newer and babl with their development files,
@@ -152,6 +163,9 @@ The GHS in `astro:stretch` is ported from Siril's `src/filters/ght.c`
 kept in `operations/stretch.c`. The GHS equations are by Dave Payne and
 Mike Cranfield (<https://www.ghsastro.co.uk>). The arcsinh stretch follows
 Lupton et al., "Preparing Red-Green-Blue Images from CCD Data" (2004).
+
+The background factor of `astro:star-color` follows Siril's saturation
+tool (`src/filters/saturation.c`), written anew.
 
 The sampling of `astro:background` follows
 Georg Hennig's Background Gradient plug-in (gimp-plugin-astronomy,

@@ -9,7 +9,7 @@
 #
 #   tests/gui/dialogs.sh                        all
 #   ASTRO_DIALOGS="stretch" tests/gui/dialogs.sh  some
-#     (background stretch star-mask star-reduce)
+#     (background stretch star-mask star-reduce star-color)
 #
 # Prints PASS or FAIL per step and exits non-zero if one failed.
 # (After gegl-equalizers' tests/gui/shots.sh.)
@@ -64,6 +64,7 @@ title_of () {
         stretch) echo "Astro Stretch" ;;
         star-mask) echo "Star Mask" ;;
         star-reduce) echo "Reduce Stars" ;;
+        star-color) echo "Star Colour" ;;
     esac
 }
 
@@ -87,7 +88,7 @@ session () {
 }
 
 snapshot_begin gui
-for s in ${ASTRO_DIALOGS:-background stretch star-mask star-reduce}; do
+for s in ${ASTRO_DIALOGS:-background stretch star-mask star-reduce star-color}; do
     session "$s"
 done
 snapshot_end gui || status=1

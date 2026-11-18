@@ -22,6 +22,7 @@ operations = {
   'astro-stretch': ['operations/stretch.c'],
   'astro-star-mask': ['operations/star-mask.c'],
   'astro-star-reduce': ['operations/star-reduce.c'],
+  'astro-star-color': ['operations/star-color.c'],
 }
 
 foreach op, sources : operations

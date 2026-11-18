@@ -20,7 +20,7 @@ build=${BUILD:-tests/output/build-check}
 case $build in /*) ;; *) build=$top/$build ;; esac
 check_out="$out/gimp-check"
 mod="$out/gimp-check-modules"
-modules="astro-background astro-stretch astro-star-mask astro-star-reduce"
+modules="astro-background astro-stretch astro-star-mask astro-star-reduce astro-star-color"
 for m in $modules; do
     [ -f "$build/$m.so" ] || { echo "no $build/$m.so: run tests/check.sh first" >&2; exit 2; }
 done
