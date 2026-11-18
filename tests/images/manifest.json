@@ -1,0 +1,95 @@
+[
+ {
+  "file": "cygnus-milky-way.jpg",
+  "kind": "wide field, dense Milky Way star field with dark lanes",
+  "title": "File:Milky Way in Cygnus 2025 - 54657597165.jpg",
+  "page": "https://commons.wikimedia.org/wiki/File:Milky_Way_in_Cygnus_2025_-_54657597165.jpg",
+  "license": "CC0",
+  "license_template": "{{cc-zero}}, {{FlickreviewR|status=passed|reviewlicense=cc-zero}} (2025-08-30)",
+  "author": "Giuseppe Donatiello (gjdonatiello)",
+  "credit": "https://www.flickr.com/photos/133259498@N05/54657597165/",
+  "size": "6324x4578",
+  "sha256": "58a62505bf919e40b1802fac27d4d83f72c2f70ef7ad690ec474faba33da8a40"
+ },
+ {
+  "file": "orion-belt-sword-donatiello.jpg",
+  "kind": "wide field, nebulae (M42, Horsehead) and stars",
+  "title": "File:Orion's Belt ^ Sword - Flickr - gjdonatiello.jpg",
+  "page": "https://commons.wikimedia.org/wiki/File:Orion%27s_Belt_%5E_Sword_-_Flickr_-_gjdonatiello.jpg",
+  "license": "CC0",
+  "license_template": "{{cc-zero}}, {{FlickreviewR|status=passed|reviewlicense=cc-zero}} (2022-01-20)",
+  "author": "Giuseppe Donatiello",
+  "credit": "https://www.flickr.com/photos/133259498@N05/51825079873/",
+  "size": "5684x3351",
+  "sha256": "ba01ee0ea7008a3739966fd65dec3b454763af5cad2ff0f662a70a468289365d"
+ },
+ {
+  "file": "orion-belt-sword-rahn.jpg",
+  "kind": "wide field, nebulae and stars",
+  "title": "File:Belt and Sword of Orion - Flickr - StephenGA.jpg",
+  "page": "https://commons.wikimedia.org/wiki/File:Belt_and_Sword_of_Orion_-_Flickr_-_StephenGA.jpg",
+  "license": "CC0",
+  "license_template": "{{cc-zero}}, {{FlickreviewR|status=passed|reviewlicense=cc-zero}} (2020-08-11)",
+  "author": "Stephen Rahn",
+  "credit": "https://www.flickr.com/photos/srahn/40720269621/",
+  "size": "6024x4022",
+  "sha256": "e485303b51d62d2dfcfb3f96f0589bfbb0208cc0765769f565953e9e04232e57"
+ },
+ {
+  "file": "helix-nebula.jpg",
+  "kind": "telescope, a small nebula in a sparse star field (mostly sky)",
+  "title": "File:The Helix Nebula - Flickr - StephenGA.jpg",
+  "page": "https://commons.wikimedia.org/wiki/File:The_Helix_Nebula_-_Flickr_-_StephenGA.jpg",
+  "license": "CC0",
+  "license_template": "{{cc-zero}}, {{FlickreviewR|status=passed|reviewlicense=cc-zero}} (2020-08-20)",
+  "author": "Stephen Rahn",
+  "credit": "https://www.flickr.com/photos/srahn/48818265677/",
+  "size": "4144x2822",
+  "sha256": "a5327efd791aa16de162618dc3f2d7dee029db3e08d5b72919b98ad18775d1ae"
+ },
+ {
+  "file": "messier-8.jpg",
+  "kind": "telescope, a large emission nebula filling much of the frame",
+  "title": "File:Messier 8 - Flickr - StephenGA.jpg",
+  "page": "https://commons.wikimedia.org/wiki/File:Messier_8_-_Flickr_-_StephenGA.jpg",
+  "license": "CC0",
+  "license_template": "{{cc-zero}}, {{FlickreviewR|status=passed|reviewlicense=cc-zero}} (2020-08-20)",
+  "author": "Stephen Rahn",
+  "credit": "https://www.flickr.com/photos/srahn/48645947006/",
+  "size": "1961x1589",
+  "full_size": true,
+  "sha256": "8b3cc5b6e9a188206f8dc6f7a789a1c5b2614d677054dea41e43edc0c90fdbfa"
+ },
+ {
+  "file": "m31-dslr.jpg",
+  "kind": "DSLR and refractor, a large galaxy",
+  "title": "File:M31 with a bit more colour v3. DSLR Image (Explore) - Flickr - kees scherer.jpg",
+  "page": "https://commons.wikimedia.org/wiki/File:M31_with_a_bit_more_colour_v3._DSLR_Image_(Explore)_-_Flickr_-_kees_scherer.jpg",
+  "license": "CC0",
+  "license_template": "{{cc-zero}}, {{FlickreviewR|status=passed|reviewlicense=cc-zero}} (2020-08-03)",
+  "author": "Kees Scherer",
+  "credit": "https://www.flickr.com/photos/kees-scherer/26852423236/",
+  "size": "2735x1586",
+  "sha256": "3a3b09808a4a4e5090b2013196fa2d3388a704435add7edd09478c7449f9e964",
+  "crop": [
+   58,
+   58,
+   2620,
+   1470
+  ],
+  "crop_note": "the file has a black margin, a white frame line (x 50 to 54 and 2680 to 2684, y 50 to 54 and about 1531 to 1535) and a caption below; tests/real.py uses only the picture inside"
+ },
+ {
+  "file": "lbn777-dslr.jpg",
+  "kind": "DSLR, a dusty molecular cloud in a star field",
+  "title": "File:LBN777 Baby Eagle nebula region. DSLR Image (EAPOD dec 6 2016 and Flickr Explore) - Flickr - kees scherer.jpg",
+  "page": "https://commons.wikimedia.org/wiki/File:LBN777_Baby_Eagle_nebula_region._DSLR_Image_(EAPOD_dec_6_2016_and_Flickr_Explore)_-_Flickr_-_kees_scherer.jpg",
+  "license": "CC0",
+  "license_template": "{{cc-zero}}, {{FlickreviewR|status=passed|reviewlicense=cc-zero}} (2020-08-06)",
+  "author": "Kees Scherer",
+  "credit": "https://www.flickr.com/photos/kees-scherer/30561456393/",
+  "size": "1772x1140",
+  "full_size": true,
+  "sha256": "8c64c2f5095a833d83cb972bcde06ce7a1c56e7db30d6c0ea629d84fcd1db04a"
+ }
+]

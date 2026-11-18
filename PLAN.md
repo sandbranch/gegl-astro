@@ -421,6 +421,64 @@ never the user's photos).
   UBSan (`tests/check.sh`). The dialog on Broadway (`tests/gui`).
   Everything through `tests/isolate.sh` with the snapshot of the user's
   folders.
+- **Real images** (`tests/real.sh`, added 2026-11-18): seven CC0
+  astrophotos from Wikimedia Commons, licence read on each file's page
+  ({{cc-zero}} with a passed Flickr licence review on all seven), listed
+  with page, author and SHA-256 in `tests/images/manifest.json`, fetched
+  by `tests/images/fetch.py` into `tests/output/images` (Commons served
+  3840 px wide renditions for the 2560 px request; the two smaller
+  originals as they are). Two wide Milky Way and Orion fields
+  (Donatiello), a wide Orion field with a gradient left in and the Helix
+  and M8 through a telescope (Rahn), M31 and LBN 777 with a DSLR
+  (Scherer; M31's file has a frame and caption, cut away by the
+  manifest's `crop`). They are finished JPEGs (stretched, mostly
+  flattened by their authors), decoded to linear light as GIMP does, so
+  they test robustness on real stars, nebulae and noise, and a gradient
+  added to them has a known truth; they are not raw linear data.
+  Measurements, not pass or fail (no truth for the images themselves);
+  the numbers below are from 2026-11-18, the JPEGs in `tests/output/real`
+  were looked at.
+
+  - **Remove Sky Background** (half size, `real.py background`): the
+    spread of the star-free sky's medians in 24 boxes per side, P5 to
+    P95 in 8 bit levels of the encoded luminance, before / after
+    (degree 2, tolerance 5): Rahn's Orion 19.7 / 3.6 (a real brown
+    gradient at the top right, gone in the JPEG), Helix 13.8 / 5.6 (dark
+    corners lifted), M8
+    24.0 / 21.0, Donatiello's Orion 31.2 / 32.1, Cygnus 86.8 / 87.3, LBN
+    777 84.6 / 69.5; M31's sky is clipped to black (0 / 0). Where the
+    spread stays, it is the Milky Way, dust and nebulae, which a
+    background filter should leave. The fitted models are smooth and
+    show no structure of the objects.
+  - **Star Mask** (full size, defaults): 833 to 3305 regions per
+    megapixel, 3.8 to 11 % of the frame. By eye: field stars are found
+    cleanly; in the dense Cygnus field only the brighter part of the
+    faint stars is marked (many faint ones visible unmarked); **in bright
+    nebulae (the Helix's ring, M8's core, M42) small knots of the
+    nebula's texture are marked as stars.** So Reduce Stars dims nebula
+    texture there (seen in M42). Open: a check against the local
+    contrast of a knot, or a larger `scale` for nebula fields.
+  - **Reduce Stars** (full size, `real.py reduce`): for the 300 regions
+    with the most light, the radial profile (ring medians) against the
+    sky 4 to 8 px beyond the region, in noise sigmas: the lowest ring of
+    the result is never more than 0.03 sigma below the input's own
+    lowest ring (defaults, erosion 100 %, erosion with 2 iterations, all
+    seven images). No dark rings are made; some input stars already have
+    shallow dark rings from their authors' processing (up to -3.7 sigma
+    in Rahn's Orion). The 4x crops show smaller stars and no rings.
+  - **Astro Stretch** (`real.py stretch`, half size): each image made
+    dark by the inverse GHS on its encoded values (ln(D+1) 4, b 2, SP
+    0.08, HP 0.95), standing in for linear numbers in a file, then
+    stretched forward with the same settings. With `encoded` the
+    original comes back to at most 1.2e-5 (all seven); in linear light
+    the sky's median comes out at 8.1 to 21.5 levels where the originals
+    have 10.4 to 72.3 (8 bit, encoded luminance; Cygnus 21.5 against
+    72.3), so on numbers held with
+    the sRGB curve the linear mode is darker, not brighter (it sees them
+    as much smaller linear values, far below SP). Brighter holds for an
+    image in linear light precision (the sRGB curve lies above x).
+  - **Tolerance study** (`real.py tolerance`): op 1 item 2 below.
+
 - Timing on 24 MP (`tests/bench.sh`, a synthetic star field of 6000 x
   4000 with 30000 stars, float, 24 GEGL threads on this machine), with a
   target of under 1 s per preview for the point ops and under 3 s for
@@ -496,10 +554,16 @@ never the user's photos).
    or lower settings. Not built; decide with real data.
    **Built 2026-11-18 (evening), off by default:** the stretch's
    `encoded` option works on the encoded values (op 5). The background
-   fit and the star ops stay linear only.
+   fit and the star ops stay linear only. ("Brighter" above holds for an
+   image in linear light precision; on numbers held with the sRGB curve
+   the linear mode came out darker, Test strategy, real images.)
 8. **Real test images:** which ones may be used (CC0 or public domain,
    checked per image), e.g. a few NASA frames, or synthetic only?
    **Default chosen 2026-11-18 while David was away; easy to change:** synthetic only in the repository.
+   **Since 2026-11-18 (evening):** seven CC0 images from Wikimedia
+   Commons, fetched by script with a manifest and SHA-256, not in git,
+   for measurements (`tests/real.sh`, Test strategy). The pass or fail
+   tests stay synthetic.
 9. **Hennig's Align and Merge Layers:** port as GIMP 3 plug-ins, or leave
    alignment and stacking to Siril?
    **Default chosen 2026-11-18 while David was away; easy to change:** leave alignment and stacking to Siril.

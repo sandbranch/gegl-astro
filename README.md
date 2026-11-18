@@ -146,6 +146,13 @@ apps changed.
   package `gegl`).
 - `tests/bench.sh`: how long each filter takes on a 24 megapixel
   synthetic star field.
+- `tests/real.sh [part]`: the filters on seven real astrophotos (CC0,
+  from Wikimedia Commons; `tests/images/manifest.json` names each file's
+  page, author and the licence read there) and on synthetic scenes:
+  measurements and before / after JPEGs in `tests/output/real`, not a
+  pass or fail test. `tests/images/fetch.py` downloads the images into
+  `tests/output/images` and checks their SHA-256; they are not in git.
+  Needs numpy and scipy.
 - `tests/gui/dialogs.sh`: opens each filter's dialog from Search
   Actions in GIMP on a Broadway display and leaves screenshots in
   `tests/output/gui`.
@@ -154,7 +161,10 @@ apps changed.
   (`gimp-devtools/gui/cdp.mjs`), leaves a screenshot in
   `tests/output/gui/look.png`.
 
-No test image is a photo: the star fields are generated.
+The pass or fail tests use generated star fields only; the real images
+are fetched for `tests/real.sh` and stay out of the repository. Their
+authors are credited in the manifest (CC0 needs no credit; it is given
+anyway).
 
 ## Credits and licence
 
@@ -169,6 +179,10 @@ Lupton et al., "Preparing Red-Green-Blue Images from CCD Data" (2004).
 
 The background factor of `astro:star-color` follows Siril's saturation
 tool (`src/filters/saturation.c`), written anew.
+
+The real test images (fetched, not shipped; `tests/images/manifest.json`)
+are CC0 photographs by Giuseppe Donatiello, Stephen Rahn and Kees
+Scherer, from Wikimedia Commons.
 
 The sampling of `astro:background` follows
 Georg Hennig's Background Gradient plug-in (gimp-plugin-astronomy,
