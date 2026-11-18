@@ -28,7 +28,8 @@
  * with sigma clipping) without its tensor polynomial. Cells brighter than
  * the median of all cells by more than "tolerance" robust sigmas
  * (1.4826 x MAD) are dropped, as Siril does with its samples (nebulae,
- * galaxies, bright stars). A polynomial of total degree 0 to 4 in
+ * galaxies, bright stars); the default 5 (2 before 2026-11-18) keeps a
+ * strong light dome's own cells (PLAN.md, the tolerance study). A polynomial of total degree 0 to 4 in
  * coordinates scaled to -1 to 1 is fitted to the cells by least squares,
  * and cells more than 3 robust sigmas of the residuals off the surface
  * are dropped and the surface fitted again, up to 4 times.
@@ -82,11 +83,13 @@ property_int (samples, _("Samples per side"), 16)
                  "image; the cells are square."))
   value_range (4, 64)
 
-property_double (tolerance, _("Tolerance"), 2.0)
+property_double (tolerance, _("Tolerance"), 5.0)
   description (_("Cells brighter than the typical cell by more than this "
                  "many robust standard deviations are left out of the fit "
                  "(nebulae, galaxies, bright stars). Lower leaves out "
-                 "more."))
+                 "more: try 2 when a large galaxy or nebula bends the "
+                 "background; keep it high for strong light pollution, "
+                 "whose brightest part would be left out otherwise."))
   value_range (0.2, 10.0)
   ui_digits (1)
 

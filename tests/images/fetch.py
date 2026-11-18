@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # Downloads the real astronomical images listed in manifest.json from
-# Wikimedia Commons into tests/output/images, as 2560 pixel wide
-# renditions (those marked "full_size": the original, which is smaller),
+# Wikimedia Commons into tests/output/images, as the renditions Commons
+# serves for a 2560 pixel request (3840 px wide on 2026-11-18; those
+# marked "full_size": the original, which is smaller),
 # and checks each against the SHA-256 in the manifest. All are CC0: the
 # licence was read on each file's Commons page (manifest.json names the
 # page, author, licence and the licence templates found there, with the

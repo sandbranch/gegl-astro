@@ -22,7 +22,11 @@ its mean brightness. The sky level is measured on a grid of cells with
 sigma-clipped medians, so stars do not count; cells much brighter than
 the rest (nebulae, galaxies) and cells far off the fitted surface are
 left out. The surface is a polynomial of degree 0 to 4. "Show: background
-model" shows the fitted surface itself.
+model" shows the fitted surface itself. "Tolerance" (default 5) sets how
+much brighter than the typical cell a cell may be and still count: lower
+(about 2) when a large galaxy or nebula bends the background, high for
+strong light pollution, whose brightest part would otherwise be left
+out (measured on synthetic scenes and real images, PLAN.md op 1).
 
 ![The dialog in GIMP 3.2.6](docs/background-dialog.png)
 

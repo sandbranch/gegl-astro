@@ -204,11 +204,12 @@ def part_background():
             row += '%5.1f (%4.1f)           ' % spread(sky_boxes(o, mask))
         say(row)
         base = os.path.splitext(im['file'])[0]
-        # before | after (defaults), the same display stretch for both
+        # before | tolerance 2 | tolerance 5, the same display stretch for all
         # (the sky median to 0.25 in the encoded values; finished images
         # are already bright, so a mild boost to see the sky's evenness)
         k = boost_factor(sky)
-        save_jpeg(side_by_side(a * k, outs['tolerance 5 (default)'] * k), base + '-background.jpg', 2400)
+        save_jpeg(side_by_side(side_by_side(a * k, outs['tolerance 2'] * k),
+                               outs['tolerance 5 (default)'] * k), base + '-background.jpg', 3000)
         # the image | the model at tolerance 2 | at tolerance 5 (degree 2)
         m2 = run('astro:background', {'show': 'model', 'tolerance': 2.0}, a)
         m5 = run('astro:background', {'show': 'model', 'tolerance': 5.0}, a)

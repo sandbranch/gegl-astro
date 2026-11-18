@@ -43,7 +43,7 @@ Filters > Astronomy > Remove Sky Background...
 | `correction` | subtract / divide, subtract | sky glow and light pollution add light; vignetting multiplies |
 | `degree` | int 0 to 4, 2 | total degree of the polynomial |
 | `samples` | int 4 to 64, 16 | cells along the longer side (square cells) |
-| `tolerance` | 0.2 to 10, 2.0 | cells brighter than the median cell by more than this many robust sigmas are left out |
+| `tolerance` | 0.2 to 10, 5.0 (2.0 until 2026-11-18) | cells brighter than the median cell by more than this many robust sigmas are left out |
 | `exclude-stars` | bool, false | leave the star mask's pixels (op 2, default settings) out of the cells |
 | `keep-level` | bool, true | add the surface's mean back (or multiply by it) |
 | `show` | corrected / model, corrected | the result or the fitted surface |
@@ -105,6 +105,68 @@ it is one Horner evaluation per pixel and channel. No random numbers.
    tolerance with degree 3 or 4 works better; the dialog's text could
    say so, or the default could move to about 5 (not changed: decide
    with real images).
+
+   **Measured and decided 2026-11-18 (evening): the default is now 5**
+   (`tests/real.sh tolerance`, all numbers in
+   `tests/output/real/tolerance.txt`). Tolerances 1, 1.5, 2, 3, 5, 7, 10.
+
+   Synthetic scenes (600 x 400, 600 stars, noise 0.003; the model's max
+   error against the true sky, % of its range), tolerance 2 / 5:
+
+   | Scene | Degree 2 | Degree 3 | Degree 4 |
+   |---|---|---|---|
+   | quadratic | 0.3 / 0.3 | 0.3 / 0.3 | 0.4 / 0.6 |
+   | dome from beyond a corner | 47.0 / 37.7 | 28.0 / 14.5 | 18.9 / 7.5 |
+   | horizon band | 41.3 / 17.9 | 25.4 / 6.7 | 11.5 / 2.3 |
+   | nebula (sigma 55 px) | 2.8 / 2.8 | 5.3 / 5.3 | 8.1 / 8.1 |
+   | nebula (sigma 110 px) | 40.9 / 40.9 | 60.0 / 60.0 | 56.7 / 56.7 |
+   | bright galaxy across the middle | 0.8 / 0.8 | 1.3 / 1.3 | 1.7 / 1.8 |
+
+   The objects cost nothing at 5 (the big nebula is wrong at every
+   setting, 37 to 60 %, a case for sample points or the spline); the
+   dome and the band gain a lot. Tolerance 1
+   to 1.5 helps the small nebula a little (2.2 to 2.3 % at degree 2)
+   and hurts the dome and band.
+
+   Real images (half size) with a known warm glow added (range = the
+   sky median, at least 0.02 linear): the model of image + glow minus
+   the model of the image against the glow, max error %, quadratic /
+   dome / band, tolerance 2 then 5, degree 2:
+
+   | Image | Tolerance 2 | Tolerance 5 | Bend 2 / 5 |
+   |---|---|---|---|
+   | Cygnus (Milky Way) | 97 / 130 / 93 | 0.4 / 29 / 33 | 64.8 / 85.5 |
+   | Orion (Donatiello) | 0.5 / 20 / 24 | 7.0 / 22 / 23 | 8.8 / 8.7 |
+   | Orion (Rahn) | 0.3 / 23 / 24 | the same | 22.7 / 22.7 |
+   | Helix | 0.9 / 36 / 37 | 0.7 / 22 / 21 | 14.1 / 14.4 |
+   | M8 | 5.6 / 23 / 22 | 7.5 / 28 / 21 | 11.2 / 11.2 |
+   | M31 | 3.6 / 31 / 41 | 3.8 / 25 / 29 | 4.7 / 10.3 |
+   | LBN 777 | 44 / 46 / 37 | 0.4 / 29 / 22 | 59.0 / 64.6 |
+
+   At degree 4 and tolerance 5: Cygnus 0.7 / 3.0 / 3.6, Rahn 0.5 / 2.7 /
+   2.1, Helix 2.7 / 3.1 / 3.6, Donatiello 0.9 / 3.2 / 17.1, M31 8.1 /
+   8.0 / 11.7, M8 28.8 / 10.4 / 11.1, LBN 777 41.5 / 16.5 / 2.7. "Bend"
+   is the cost: the range (P1 to P99) of the model of the finished image
+   alone in 8 bit levels of the encoded luminance; these skies were
+   flat, so a larger bend is the surface following the object: M31's
+   halo (+5.6 levels), the Milky Way filling Cygnus (+20.7) and LBN 777's
+   dust (+5.6); the others move by under 0.5. Looked at (before,
+   tolerance 2, tolerance 5, `*-background.jpg`): no visible dent in M31
+   or LBN 777 at either; in Cygnus, where the Milky Way crosses the
+   whole frame, **both** tolerances take part of the band's glow away
+   and warm the empty corners (brown red), 5 a little more than 2. A
+   frame filled by the Milky Way has no sky to fit at any tolerance;
+   it needs sample points (item 3) or no background removal.
+
+   At 2 the fit on the real images is unstable: adding the glow changes
+   which cells the bright cell rejection drops, and the error jumps
+   (Cygnus at degree 4: 341 % max on the dome). At 7 and
+   10 Donatiello's Orion at degree 4 fails (over 100 %, M42's cells come
+   in). 5 is the best overall; 2 stays in the dialog's text for large
+   galaxies and nebulae. tests/check.c with 5: every limit still met
+   (quadratic model 0.54 to 0.46 %, nebula 2.24 %, the dense star band
+   without leaving out stars 21.4 to 24.9 %, limit only for the case with
+   stars left out, 3.17 %).
 3. **User sample points:** a `points` string property (`"u,v;u,v"` in 0
    to 1 coordinates, saved in the XCF) that replaces the grid, and a
    small plug-in that fills it from GIMP's sample points (Pointer dialog)
@@ -449,7 +511,9 @@ never the user's photos).
     777 84.6 / 69.5; M31's sky is clipped to black (0 / 0). Where the
     spread stays, it is the Milky Way, dust and nebulae, which a
     background filter should leave. The fitted models are smooth and
-    show no structure of the objects.
+    show no structure of the objects, but in Cygnus the surface follows
+    the Milky Way's broad glow, which crosses the whole frame (tolerance
+    study below).
   - **Star Mask** (full size, defaults): 833 to 3305 regions per
     megapixel, 3.8 to 11 % of the frame. By eye: field stars are found
     cleanly; in the dense Cygnus field only the brighter part of the
