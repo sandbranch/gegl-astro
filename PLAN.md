@@ -96,6 +96,21 @@ it is one Horner evaluation per pixel and channel. No random numbers.
    (user points, item 3, or samples placed away from bright areas, as
    Siril's automatic mode) before it can win. Left for later.
 
+   **Tried again 2026-11-18 (evening), not shipped** (branch
+   `spline-placement`, probe `tests/probes/background-spline-placement.py`):
+   the cells chosen by a rejection against the smoothing spline itself
+   (fit, drop cells over 3 robust sigmas off it, or only above it, fit
+   again, up to 4 rounds), with tolerance 5. Max error, % of the sky's
+   range, polynomial degree 2 / degree 4 / robust spline: quadratic
+   0.3 / 0.6 / 4.6, dome 37.7 / 7.5 / 32.2, band 17.9 / 2.3 / 51.7,
+   nebula 2.8 / 8.1 / 3.4, big nebula 40.9 / 56.7 / 65.9, galaxy 0.8 /
+   1.8 / 1.9; one-sided rejection, smoothing 0.8 and the old local
+   rejection are no better. On the seven real images with a known glow
+   the degree 4 polynomial beats every spline variant on nearly every
+   image (Cygnus 1 / 3 / 4 % against 3 / 90 / 117 %). Automatic cell
+   choice is not what the spline lacks; user sample points (item 3) are
+   the next thing to try with it.
+
    **Found on the way, for the polynomial:** the bright cell rejection
    (`tolerance` 2) drops a strong light dome's own cells. A dome from
    beyond a corner (falling to 1/e in 0.3 widths): degree 4 within
@@ -598,7 +613,8 @@ never the user's photos).
    worth doing soon?
    **Default chosen 2026-11-18 while David was away; easy to change:** the polynomial now, the RBF later.
    (Tried anyway: it lost to the polynomial on synthetic scenes, see op 1
-   item 2; it needs better sampling first.)
+   item 2; tried again with a robust automatic cell choice on synthetic
+   and real images, lost again: it needs user sample points first.)
 6. **GHS:** decided 2026-11-18: port Siril's `ght.c` (GPL-3.0-or-later,
    compatible), credited in the source and the README.
 7. **Linear or as encoded:** the ops work in linear light. Most images
