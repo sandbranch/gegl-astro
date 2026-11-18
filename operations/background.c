@@ -70,12 +70,33 @@ property_enum (correction, _("Correction"),
                  "add light) or divide by it (vignetting takes a share "
                  "of the light)."))
 
+enum_start (astro_background_model)
+  enum_value (ASTRO_BACKGROUND_POLYNOMIAL, "polynomial", N_("Polynomial"))
+  enum_value (ASTRO_BACKGROUND_SPLINE,     "spline",     N_("Thin plate spline"))
+enum_end (AstroBackgroundModel)
+
+property_enum (model, _("Surface"),
+               AstroBackgroundModel, astro_background_model,
+               ASTRO_BACKGROUND_POLYNOMIAL)
+  description (_("A polynomial (smooth, for gradients across the whole "
+                 "frame) or a thin plate spline through the sample "
+                 "cells (follows local gradients, e.g. near the "
+                 "horizon; at most 32 cells per side)."))
+
 property_int (degree, _("Degree"), 2)
   description (_("Degree of the polynomial surface: 0 a constant level, "
                  "1 a plane (a linear gradient), 2 to 4 curved gradients. "
                  "Higher degrees follow the sky more closely but may bend "
                  "into large nebulae."))
   value_range (0, 4)
+  ui_meta ("visible", "model {polynomial}")
+
+property_double (smoothing, _("Smoothing"), 0.5)
+  description (_("How far the spline may pass by the cells (0: through "
+                 "them, 1: stiff); the scale of Siril's RBF smoothing."))
+  value_range (0.0, 1.0)
+  ui_digits (2)
+  ui_meta ("visible", "model {spline}")
 
 property_int (samples, _("Samples per side"), 16)
   description (_("Number of sample cells along the longer side of the "
@@ -131,6 +152,7 @@ property_enum (show, _("Show"),
 typedef struct
 {
   gdouble u, v;       /* centre, -1 to 1 */
+  gdouble cx, cy;     /* centre, in cells from the box's corner */
   gdouble level[3];   /* sky level per channel */
   gdouble lum;        /* mean of the three */
   gboolean use;
@@ -353,7 +375,8 @@ measure (GeglBuffer          *input,
          const Babl          *format,
          gint                 samples,
          const gfloat        *stars,
-         gint                *n_cells_out)
+         gint                *n_cells_out,
+         gint                *nx_out)
 {
   gint    side = MAX (box->width, box->height);
   gdouble size = (gdouble) side / samples;
@@ -419,6 +442,8 @@ measure (GeglBuffer          *input,
         cell->lum = (cell->level[0] + cell->level[1] + cell->level[2]) / 3.0;
         cell->u   = (x0 + x1) / (gdouble) box->width - 1.0;
         cell->v   = (y0 + y1) / (gdouble) box->height - 1.0;
+        cell->cx  = 0.5 * (x0 + x1) / size;
+        cell->cy  = 0.5 * (y0 + y1) / size;
         cell->use = TRUE;
       }
 
@@ -427,6 +452,7 @@ measure (GeglBuffer          *input,
   g_free (tmp);
   g_free (pix);
   *n_cells_out = nx * ny;
+  *nx_out      = nx;
   return cells;
 }
 
@@ -531,6 +557,266 @@ surface (Cell    *cells,
   return degree;
 }
 
+/* ---- the thin plate spline ----------------------------------------------- */
+
+/* Cells far from a plane through their neighbours (3 x 3, least
+ * squares) are dropped: a spline through every cell would follow a
+ * nebula, and leaves no residuals to reject cells by. (A median of the
+ * neighbours was tried first: at the edges, where all neighbours lie on
+ * one side, the gradient alone moved it, and the corner cells were
+ * dropped.) Two rounds, 3 robust sigmas of the deviations. */
+static void
+reject_local (Cell *cells,
+              gint  n_cells,
+              gint  nx)
+{
+  gint     ny = n_cells / nx, round;
+  gdouble *dev = g_new (gdouble, n_cells), *tmp = g_new (gdouble, n_cells);
+  gboolean *has = g_new (gboolean, n_cells);
+
+  for (round = 0; round < 2; round++)
+    {
+      gint    i, n = 0;
+      gdouble sigma;
+
+      for (i = 0; i < n_cells; i++)
+        {
+          gdouble a[9] = { 0 }, b[3] = { 0 };
+          gint    k = 0, dx, dy, x = i % nx, y = i / nx;
+
+          has[i] = FALSE;
+          if (! cells[i].use)
+            continue;
+          for (dy = -1; dy <= 1; dy++)
+            for (dx = -1; dx <= 1; dx++)
+              {
+                gint    xx = x + dx, yy = y + dy;
+                gdouble t[3] = { 1.0, dx, dy }, l;
+                gint    p, q;
+
+                if (! (dx || dy) || xx < 0 || yy < 0 || xx >= nx || yy >= ny ||
+                    ! cells[yy * nx + xx].use)
+                  continue;
+                l = cells[yy * nx + xx].lum;
+                for (p = 0; p < 3; p++)
+                  {
+                    for (q = 0; q < 3; q++)
+                      a[p * 3 + q] += t[p] * t[q];
+                    b[p] += t[p] * l;
+                  }
+                k++;
+              }
+          /* the plane's value at the cell: a + 0 + 0 */
+          if (k < 4 || ! solve (a, b, 3))
+            continue;
+          dev[i]   = cells[i].lum - b[0];
+          has[i]   = TRUE;
+          tmp[n++] = fabs (dev[i]);
+        }
+      if (n < 8)
+        break;
+      sigma = MAD_TO_SIGMA * median_double (tmp, n);
+      if (sigma <= 0.0)
+        break;
+      for (i = 0; i < n_cells; i++)
+        if (has[i] && fabs (dev[i]) > RESIDUAL_SIGMA * sigma)
+          cells[i].use = FALSE;
+    }
+  g_free (has);
+  g_free (dev);
+  g_free (tmp);
+}
+
+typedef struct
+{
+  gint     n;           /* cells used */
+  gdouble *x, *y;       /* their centres, in cells */
+  gdouble *w[3];        /* kernel weights per channel */
+  gdouble  a[3][3];     /* 1, x, y per channel */
+} Spline;
+
+/* r^2 log r, from d = r^2 */
+static inline gdouble
+tps_kernel (gdouble d)
+{
+  return d > 1e-12 ? 0.5 * d * log (d) : 0.0;
+}
+
+static inline gdouble
+spline_eval (const Spline *sp,
+             gint          c,
+             gdouble       x,
+             gdouble       y)
+{
+  gdouble s = sp->a[c][0] + sp->a[c][1] * x + sp->a[c][2] * y;
+  gint    i;
+
+  for (i = 0; i < sp->n; i++)
+    {
+      gdouble dx = x - sp->x[i], dy = y - sp->y[i];
+
+      s += sp->w[c][i] * tps_kernel (dx * dx + dy * dy);
+    }
+  return s;
+}
+
+/* the smoothing thin plate spline through the used cells (Duchon 1977;
+ * the kernel r^2 log r, the terms 1, x, y; the smoothing on the
+ * diagonal on the scale of Siril's background extraction: 1e-4 x
+ * 10^((s - 0.5) 3) times the kernel's sum over the cells divided by
+ * their number). FALSE when there are too few cells or the system is
+ * singular. */
+static gboolean
+spline_fit (const Cell *cells,
+            gint        n_cells,
+            gdouble     smoothing,
+            Spline     *sp)
+{
+  gint     n = count_used (cells, n_cells), m = n + 3, i, j, k, c;
+  gdouble *a, *b, sum = 0.0, lambda;
+
+  memset (sp, 0, sizeof *sp);
+  if (n < 6)
+    return FALSE;
+  sp->n = n;
+  sp->x = g_new (gdouble, n);
+  sp->y = g_new (gdouble, n);
+  for (i = 0, k = 0; i < n_cells; i++)
+    if (cells[i].use)
+      {
+        sp->x[k] = cells[i].cx;
+        sp->y[k] = cells[i].cy;
+        k++;
+      }
+  a = g_new0 (gdouble, (gsize) m * m);
+  b = g_new0 (gdouble, (gsize) m * 3);
+  for (i = 0; i < n; i++)
+    for (j = 0; j < n; j++)
+      {
+        gdouble dx = sp->x[i] - sp->x[j], dy = sp->y[i] - sp->y[j];
+
+        a[i * m + j] = tps_kernel (dx * dx + dy * dy);
+        sum += a[i * m + j];
+      }
+  lambda = 1e-4 * pow (10.0, (smoothing - 0.5) * 3.0) * sum / n;
+  for (i = 0, k = 0; i < n_cells; i++)
+    if (cells[i].use)
+      {
+        a[k * m + k] = lambda;
+        a[k * m + n] = a[n * m + k] = 1.0;
+        a[k * m + n + 1] = a[(n + 1) * m + k] = sp->x[k];
+        a[k * m + n + 2] = a[(n + 2) * m + k] = sp->y[k];
+        for (c = 0; c < 3; c++)
+          b[k * 3 + c] = cells[i].level[c];
+        k++;
+      }
+
+  /* Gaussian elimination with partial pivoting, three right sides */
+  for (k = 0; k < m; k++)
+    {
+      gint    piv = k;
+      gdouble best = fabs (a[k * m + k]);
+
+      for (i = k + 1; i < m; i++)
+        if (fabs (a[i * m + k]) > best)
+          {
+            best = fabs (a[i * m + k]);
+            piv  = i;
+          }
+      if (best < 1e-14)
+        {
+          g_free (a);
+          g_free (b);
+          return FALSE;
+        }
+      if (piv != k)
+        {
+          for (j = 0; j < m; j++)
+            {
+              gdouble t = a[k * m + j];
+
+              a[k * m + j]   = a[piv * m + j];
+              a[piv * m + j] = t;
+            }
+          for (c = 0; c < 3; c++)
+            {
+              gdouble t = b[k * 3 + c];
+
+              b[k * 3 + c]   = b[piv * 3 + c];
+              b[piv * 3 + c] = t;
+            }
+        }
+      for (i = k + 1; i < m; i++)
+        {
+          gdouble f = a[i * m + k] / a[k * m + k];
+
+          if (f == 0.0)
+            continue;
+          for (j = k; j < m; j++)
+            a[i * m + j] -= f * a[k * m + j];
+          for (c = 0; c < 3; c++)
+            b[i * 3 + c] -= f * b[k * 3 + c];
+        }
+    }
+  for (i = m - 1; i >= 0; i--)
+    for (c = 0; c < 3; c++)
+      {
+        gdouble t = b[i * 3 + c];
+
+        for (j = i + 1; j < m; j++)
+          t -= a[i * m + j] * b[j * 3 + c];
+        b[i * 3 + c] = t / a[i * m + i];
+      }
+  for (c = 0; c < 3; c++)
+    {
+      sp->w[c] = g_new (gdouble, n);
+      for (i = 0; i < n; i++)
+        sp->w[c][i] = b[i * 3 + c];
+      for (j = 0; j < 3; j++)
+        sp->a[c][j] = b[(n + j) * 3 + c];
+    }
+  g_free (a);
+  g_free (b);
+  return TRUE;
+}
+
+static void
+spline_free (Spline *sp)
+{
+  gint c;
+
+  g_free (sp->x);
+  g_free (sp->y);
+  for (c = 0; c < 3; c++)
+    g_free (sp->w[c]);
+}
+
+#define GRID 8
+
+typedef struct
+{
+  const Spline *sp;
+  gfloat       *grid;   /* (gw x gh) x 3, nodes every GRID pixels */
+  gint          gw;
+  gdouble       size;   /* cell size in pixels */
+} GridFill;
+
+static void
+grid_rows (gsize    offset,
+           gsize    count,
+           gpointer data)
+{
+  const GridFill *g = data;
+  gsize           j;
+  gint            i, c;
+
+  for (j = offset; j < offset + count; j++)
+    for (i = 0; i < g->gw; i++)
+      for (c = 0; c < 3; c++)
+        g->grid[(j * g->gw + i) * 3 + c] =
+          spline_eval (g->sp, c, i * GRID / g->size, j * GRID / g->size);
+}
+
 static void
 prepare (GeglOperation *operation)
 {
@@ -585,6 +871,8 @@ typedef struct
   const gdouble       *mean;
   gint                 degree;
   gboolean             divide, model, keep_level;
+  const gfloat        *grid;   /* the spline on nodes every GRID pixels, or NULL */
+  gint                 gw;
 } Apply;
 
 /* the correction over one area (threads by GEGL; each pixel's result
@@ -628,17 +916,37 @@ apply_area (const GeglRectangle *area,
                 for (i = d; i >= 0; i--)
                   rowc[c][i] += ap->coef[c][k++] * vp[d - i];
             }
+          gdouble gy = (r->y + y - box.y + 0.5) / GRID;
+          gint    j0 = (gint) floor (gy);
+          gdouble ty = gy - j0;
+
           for (x = 0; x < r->width; x++, in += 4, out += 4)
             {
               gdouble u = 2.0 * (r->x + x - box.x + 0.5) / box.width - 1.0;
 
               for (c = 0; c < 3; c++)
                 {
-                  gdouble b = rowc[c][degree];
+                  gdouble b;
                   gint    d;
 
-                  for (d = degree - 1; d >= 0; d--)
-                    b = b * u + rowc[c][d];
+                  if (ap->grid)
+                    {
+                      /* bilinear between the spline's nodes */
+                      gdouble       gx = (r->x + x - box.x + 0.5) / GRID;
+                      gint          i0 = (gint) floor (gx);
+                      gdouble       tx = gx - i0;
+                      const gfloat *g0 = ap->grid + ((gsize) j0 * ap->gw + i0) * 3 + c;
+                      const gfloat *g1 = g0 + (gsize) ap->gw * 3;
+
+                      b = (1 - ty) * ((1 - tx) * g0[0] + tx * g0[3]) +
+                          ty * ((1 - tx) * g1[0] + tx * g1[3]);
+                    }
+                  else
+                    {
+                      b = rowc[c][degree];
+                      for (d = degree - 1; d >= 0; d--)
+                        b = b * u + rowc[c][d];
+                    }
                   if (ap->model)
                     out[c] = b;
                   else if (ap->divide)
@@ -663,18 +971,23 @@ process (GeglOperation       *operation,
   const Babl          *format = gegl_operation_get_format (operation, "output");
   const GeglRectangle *boxp   = gegl_operation_source_get_bounding_box (operation, "input");
   GeglRectangle        box;
-  gdouble              coef[3][MAX_TERMS];
+  gdouble              coef[3][MAX_TERMS] = { { 0 } };
   gdouble              mean[3] = { 0.0, 0.0, 0.0 };
   gboolean             divide = o->correction == ASTRO_BACKGROUND_DIVIDE;
   gboolean             model  = o->show == ASTRO_BACKGROUND_MODEL;
   Cell                *cells;
-  gfloat              *stars = NULL;
-  gint                 n_cells, degree, c, i, j;
+  gfloat              *stars = NULL, *grid = NULL;
+  gboolean             spline;
+  Spline               sp;
+  gdouble              size;
+  gint                 n_cells, nx, gw = 0, degree, c, i, j;
 
   (void) level;
   if (! boxp || boxp->width < 1 || boxp->height < 1)
     return TRUE;
   box   = *boxp;
+  size  = (gdouble) MAX (box.width, box.height) /
+          (o->model == ASTRO_BACKGROUND_SPLINE ? MIN (o->samples, 32) : o->samples);
   if (o->exclude_stars)
     {
       /* the star mask at its default settings (astro-common.h) */
@@ -682,10 +995,25 @@ process (GeglOperation       *operation,
 
       stars = astro_star_mask (input, &box, format, &params, NULL, NULL);
     }
-  cells = measure (input, &box, format, o->samples, stars, &n_cells);
+  spline = o->model == ASTRO_BACKGROUND_SPLINE;
+  cells = measure (input, &box, format, spline ? MIN (o->samples, 32) : o->samples, stars,
+                   &n_cells, &nx);
   g_free (stars);
   reject_bright (cells, n_cells, o->tolerance);
-  degree = surface (cells, n_cells, o->degree, coef);
+  if (spline)
+    {
+      reject_local (cells, n_cells, nx);
+      if (spline_fit (cells, n_cells, o->smoothing, &sp))
+        degree = 0;
+      else
+        {
+          /* too few cells for a spline: the polynomial */
+          spline = FALSE;
+          degree = surface (cells, n_cells, o->degree, coef);
+        }
+    }
+  else
+    degree = surface (cells, n_cells, o->degree, coef);
   g_free (cells);
 
   if (degree < 0)
@@ -699,17 +1027,41 @@ process (GeglOperation       *operation,
   for (j = 0; j < 64; j++)
     for (i = 0; i < 64; i++)
       for (c = 0; c < 3; c++)
-        mean[c] += eval (coef[c], degree, (i + 0.5) / 32.0 - 1.0, (j + 0.5) / 32.0 - 1.0);
+        {
+          gdouble u = (i + 0.5) / 32.0 - 1.0, v = (j + 0.5) / 32.0 - 1.0;
+
+          if (spline)
+            mean[c] += spline_eval (&sp, c, (u + 1) * 0.5 * box.width / size,
+                                    (v + 1) * 0.5 * box.height / size);
+          else
+            mean[c] += eval (coef[c], degree, u, v);
+        }
   for (c = 0; c < 3; c++)
     mean[c] /= 64.0 * 64.0;
 
+  if (spline)
+    {
+      GridFill gf;
+      gint     gh = box.height / GRID + 2;
+
+      gw         = box.width / GRID + 2;
+      grid       = g_new (gfloat, (gsize) gw * gh * 3);
+      gf.sp      = &sp;
+      gf.grid    = grid;
+      gf.gw      = gw;
+      gf.size    = size;
+      gegl_parallel_distribute_range (gh, 4, grid_rows, &gf);
+      spline_free (&sp);
+    }
+
   {
     Apply ap = { input, output, format, &box, coef, mean, degree, divide, model,
-                 o->keep_level };
+                 o->keep_level, grid, gw };
 
     gegl_parallel_distribute_area (result, 4096, GEGL_SPLIT_STRATEGY_HORIZONTAL,
                                    apply_area, &ap);
   }
+  g_free (grid);
   return TRUE;
 }
 
