@@ -252,9 +252,8 @@ never the user's photos).
 5. **RBF:** is a polynomial of degree up to 4 enough for your images, or
    is the thin plate spline (for local gradients, e.g. near the horizon)
    worth doing soon?
-6. **GHS:** write it from the published equations, or port Siril's
-   `ght.c` (GPL-3.0-or-later, compatible)? Both are allowed; porting is
-   faster, writing fresh keeps the code ours.
+6. **GHS:** decided 2026-11-18: port Siril's `ght.c` (GPL-3.0-or-later,
+   compatible), credited in the source and the README.
 7. **Linear or as encoded:** the ops work in linear light. Most images
    that reach GIMP are already stretched (non-linear). Subtracting a
    gradient is physically right only on linear data; on a stretched
