@@ -61,9 +61,12 @@ stretching):
 
 The curves match an independent implementation of the published GHS
 equations to under 1e-6 (tests/stretch-reference.py). The filter works
-in linear light, so on a linear image the result looks brighter than the
-same settings in Siril, which shows its numbers as they are (PLAN.md,
-question 7).
+in linear light by default, so the same settings do not look the same
+as in Siril, which stretches a file's numbers as they are. "Work on
+encoded values (as Siril)" applies the curve to the encoded values
+instead: on an image in GIMP's "perceptual gamma" precision (as an 8
+bit JPEG or PNG loads), the same settings then give the same result as
+Siril (PLAN.md, op 5 and question 7).
 
 ## Star Mask (`astro:star-mask`) and Reduce Stars (`astro:star-reduce`)
 

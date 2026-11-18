@@ -824,6 +824,73 @@ check_stretch_colour (void)
   g_rand_free (rnd);
 }
 
+/* "encoded values": the curve on the encoded (R'G'B') values. The
+ * result, read encoded, must be what the linear mode gives when the
+ * encoded numbers are handed to it as if they were linear (what Siril
+ * does with the numbers of a file); for GHS in both colour modes, with a
+ * black point, for arcsinh and with the automatic points. And off by
+ * default. */
+static void
+check_stretch_encoded (void)
+{
+  const gint  n = 4000;
+  const Babl *lin = babl_format ("RGBA float"), *enc = babl_format ("R'G'B'A float");
+  gfloat     *p = g_new (gfloat, n * 4), *pe = g_new (gfloat, n * 4);
+  gfloat     *oe = g_new (gfloat, n * 4);
+  GRand      *rnd = g_rand_new_with_seed (12);
+  gdouble     worst = 0, moved = 0;
+  gint        i, c, k;
+
+  for (i = 0; i < n; i++)
+    {
+      for (c = 0; c < 3; c++)
+        p[i * 4 + c] = i < n / 2 ? g_rand_double_range (rnd, 0.0, 0.05)
+                                 : g_rand_double_range (rnd, 0.0, 1.0);
+      p[i * 4 + 3] = 1.0f;
+    }
+  babl_process (babl_fish (lin, enc), p, pe, n);
+  for (k = 0; k < 5; k++)
+    {
+      gfloat *o, *r;
+
+#define ENC_ARGS(e) "encoded", e, "stretch", 4.0, "local-intensity", 2.0,  \
+                    "symmetry-point", 0.1, "protect-highlights", 0.9,     \
+                    "colour", k == 1, "black-point", k == 2 ? 0.02 : 0.0, \
+                    "curve", k == 3, "beta", 40.0, "auto-points", k == 4
+      o = run_size (p, n, 1, "astro:stretch", ENC_ARGS (TRUE), NULL);
+      r = run_size (pe, n, 1, "astro:stretch", ENC_ARGS (FALSE), NULL);
+#undef ENC_ARGS
+      babl_process (babl_fish (lin, enc), o, oe, n);
+      for (i = 0; i < n * 4; i++)
+        worst = MAX (worst, fabs (oe[i] - r[i]));
+      /* and it differs from the linear mode */
+      g_free (r);
+      r = run_size (p, n, 1, "astro:stretch", "stretch", 4.0, "local-intensity", 2.0,
+                    "symmetry-point", 0.1, "protect-highlights", 0.9, "colour", k == 1,
+                    "black-point", k == 2 ? 0.02 : 0.0, "curve", k == 3, "beta", 40.0,
+                    "auto-points", k == 4, NULL);
+      for (i = 0; i < n * 4; i++)
+        moved = MAX (moved, fabs (o[i] - r[i]));
+      g_free (o);
+      g_free (r);
+    }
+  {
+    GParamSpec *ps = gegl_operation_find_property ("astro:stretch", "encoded");
+
+    report ("stretch_encoded_off_by_default",
+            ps && ! g_value_get_boolean (g_param_spec_get_default_value (ps)),
+            "the property exists and is off by default");
+  }
+  report ("stretch_encoded_matches_numbers", worst < 2e-6 && moved > 0.01,
+          "5 cases (GHS preserve, per channel, black point, arcsinh, automatic points): "
+          "encoded result within %.2g of the curve on the numbers; differs from linear by "
+          "up to %.3f", worst, moved);
+  g_free (p);
+  g_free (pe);
+  g_free (oe);
+  g_rand_free (rnd);
+}
+
 static int
 cmp_gfloat (const void *a,
             const void *b)
@@ -968,6 +1035,7 @@ main (int    argc,
   check_stretch_inverse ();
   check_stretch_colour ();
   check_stretch_auto ();
+  check_stretch_encoded ();
   check_blur ();
   check_star_mask_completeness ();
   check_star_mask_noise_only ();

@@ -64,6 +64,8 @@ CASES = [
      {'curve': 'arcsinh', 'beta': 50.0, 'colour': 'per-channel', 'black-point': 0.01}),
     ('stretch_auto', 'astro:stretch', 'Astro Stretch',
      {'auto-points': True, 'stretch': 3.0, 'local-intensity': 1.0}),
+    ('stretch_encoded', 'astro:stretch', 'Astro Stretch',
+     {'encoded': True, 'stretch': 3.0, 'local-intensity': 1.5, 'symmetry-point': 0.2}),
     ('stretch_inverse', 'astro:stretch', 'Astro Stretch',
      {'stretch': 2.0, 'local-intensity': -1.0, 'symmetry-point': 0.2, 'inverse': True}),
     ('star_mask', 'astro:star-mask', 'Star Mask', {'threshold': 5.0}),

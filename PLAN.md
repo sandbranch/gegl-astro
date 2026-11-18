@@ -290,6 +290,7 @@ Filters > Astronomy > Stretch... (title "Astro Stretch")
 | `beta` | 0 to 1000, 10 | arcsinh strength (Lupton et al. 2004) |
 | `colour` | preserve / per-channel, preserve | one factor from the luminance of the image's RGB space for all channels, or each channel alone |
 | `auto-points` | bool, false | black point and symmetry point from the image (`auto` is a C keyword) |
+| `encoded` | bool, false | "Work on encoded values (as Siril)": the curve on the image's encoded values, not on linear light (open question 7) |
 
 The GHS sliders show only with GHS chosen, `beta` only with arcsinh
 (`ui_meta "visible"`, as gegl-depth-blur).
@@ -337,6 +338,26 @@ whole image's median and MAD) to 0.9 % in the stretched sky median, and
 0.135 %); bit identical for a moved buffer. In GIMP (headless): every
 precision and grayscale, settings through XCF, a layer with offsets, the
 same pixels as the gegl command line.
+
+**Encoded values (added 2026-11-18, PLAN question 7):** with `encoded`
+the operation takes and gives `R'G'B'A float` in the image's space, so
+the curve, the luminance weights and the automatic points all work on
+the encoded numbers, which is what Siril does with the numbers of a
+file. Checked (tests/check.c, `stretch_encoded_matches_numbers`): the
+result read encoded equals the linear mode run on the encoded numbers
+handed over as if they were linear, to 5.4e-7, for GHS preserve and per
+channel, with a black point, arcsinh and the automatic points; off by
+default (`stretch_encoded_off_by_default`); in GIMP headless (a
+`stretch_encoded` case) the same pixels as plain GEGL and the gegl
+command line on every precision.
+
+What it matches: Siril shows a file's numbers as they are. An image
+GIMP holds with the perceptual (sRGB) curve (Image > Precision:
+"perceptual gamma", as an 8 bit JPEG or PNG loads) also shows its numbers as they are, so there the same settings give
+Siril's picture. An image in "linear light" precision is already shown
+brighter than Siril shows the same numbers (GIMP puts them through the
+sRGB curve for the screen); for it, the Siril look would need "linear
+in, encoded out", which is not built (decide when someone needs it).
 
 ### 6. `astro:star-round`: Round Stars (Hennig port, later)
 
@@ -473,6 +494,9 @@ never the user's photos).
    values. A Siril-identical look needs either an "output as encoded"
    option on the stretch (input read linear, output written as R'G'B')
    or lower settings. Not built; decide with real data.
+   **Built 2026-11-18 (evening), off by default:** the stretch's
+   `encoded` option works on the encoded values (op 5). The background
+   fit and the star ops stay linear only.
 8. **Real test images:** which ones may be used (CC0 or public domain,
    checked per image), e.g. a few NASA frames, or synthetic only?
    **Default chosen 2026-11-18 while David was away; easy to change:** synthetic only in the repository.

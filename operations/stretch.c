@@ -53,6 +53,13 @@
  * the whole layer set bp = max (0, median - 3 sigma) and the symmetry
  * point to where the median lands; the operation then asks for its whole
  * input.
+ *
+ * "Encoded values" (off by default): the operation takes and gives
+ * R'G'B'A float in the image's space instead of RGBA float, so the curve
+ * (and the luminance weights and the automatic points) apply to the
+ * encoded numbers. That is what Siril does with the numbers of a file,
+ * so the same settings give the same result as Siril on an image stored
+ * with a perceptual (sRGB) curve (PLAN.md, open question 7).
  */
 
 #include <glib/gi18n-lib.h>
@@ -145,6 +152,15 @@ property_boolean (auto_points, _("Automatic black and symmetry point"), FALSE)
   description (_("Black point three robust sigmas below the median of "
                  "the image, and the symmetry point at the median; the "
                  "two settings are then not used."))
+
+property_boolean (encoded, _("Work on encoded values (as Siril)"), FALSE)
+  description (_("Apply the curve to the image's encoded values (the "
+                 "numbers as stored and shown, with the sRGB curve or "
+                 "the profile's own), not to linear light. The same "
+                 "settings then give the same picture as in Siril, which "
+                 "stretches the numbers of the file as they are. Off: "
+                 "the curve works in linear light and the result looks "
+                 "brighter."))
 
 #else
 
@@ -438,8 +454,11 @@ black (gdouble x,
 static void
 prepare (GeglOperation *operation)
 {
-  const Babl *space  = gegl_operation_get_source_space (operation, "input");
-  const Babl *format = babl_format_with_space ("RGBA float", space);
+  GeglProperties *o      = GEGL_PROPERTIES (operation);
+  const Babl     *space  = gegl_operation_get_source_space (operation, "input");
+  /* with "encoded" the values through the space's own transfer curve */
+  const Babl     *format = babl_format_with_space (o->encoded ? "R'G'B'A float"
+                                                              : "RGBA float", space);
 
   gegl_operation_set_format (operation, "input", format);
   gegl_operation_set_format (operation, "output", format);
