@@ -1,5 +1,5 @@
 #!/bin/sh
-# Starts the Flatpak GIMP on a Broadway display, on the port
+# Starts the native GIMP on a Broadway display, on the port
 # ASTRO_BROADWAY_PORT (8087 by default; the page is http://127.0.0.1:port/)
 # with tests/gui/gui-script.py (ASTRO_GUI_IMAGE: an image to open instead
 # of the generated star field), the
@@ -30,14 +30,14 @@ mkdir -p "$gui_out" "$profile"
 # no Welcome dialog: GIMP shows it when the profile is of an older
 # version, or when asked to
 if ! grep -q config-version "$profile/gimprc" 2>/dev/null; then
-    version=$(LC_ALL=C flatpak info org.gimp.GIMP | sed -n 's/^ *Version: *//p')
+    version=$(gimp-console-3.2 --version | sed 's/.* //')
     printf '(config-version "%s")\n' "$version" >> "$profile/gimprc"
 fi
 grep -q show-welcome-dialog "$profile/gimprc" 2>/dev/null ||
   echo '(show-welcome-dialog no)' >> "$profile/gimprc"
-# only GIMP's own plug-ins, not the Flatpak's extensions: G'MIC-Qt
-# crashes at start on Broadway in this setup (a message box over the
-# screenshots), and the tests need none of them
+# only GIMP's own plug-ins, not other installed ones (G'MIC-Qt crashed
+# at start on Broadway, a message box over the screenshots); the tests
+# need none of them
 grep -q plug-in-path "$profile/gimprc" 2>/dev/null ||
   echo '(plug-in-path "${gimp_dir}/plug-ins:${gimp_plug_in_dir}/plug-ins")' >> "$profile/gimprc"
 # the filter dialogs' options as GIMP starts them ("Merge filter" off):
@@ -76,13 +76,13 @@ cat > "$profile/sessionrc" <<SESSION
 (single-window-mode yes)
 (show-tabs yes)
 SESSION
-# broadwayd and GIMP in one shell inside the Flatpak (gimp_run of
-# tests/isolate.sh: the throwaway home, no GVFS)
+# broadwayd and GIMP in one shell (gimp_run of tests/isolate.sh: the
+# throwaway home, no GVFS)
 gimp_run --env=GDK_BACKEND=broadway --env=BROADWAY_DISPLAY=:$display \
   --env=GIMP3_DIRECTORY="$profile" --env=ASTRO_GUI_OUT="$gui_out" \
-  --env=GEGL_PATH="$out/gimp-check-modules:/app/lib/gegl-0.4" \
+  --env=GEGL_PATH="$out/gimp-check-modules:$(pkg-config --variable=pluginsdir gegl-0.4)" \
   --env=ASTRO_GUI_IMAGE="${ASTRO_GUI_IMAGE:-}" --env=ASTRO_GUI_NAME="${ASTRO_GUI_NAME:-gui}" \
-  --filesystem="$top" -- sh -c \
+  -- sh -c \
   "broadwayd --port $port :$display & bw=\$!; trap 'kill \$bw' EXIT; \
    i=0; while [ ! -f '$gui_out/page-open' ] && [ \$i -lt 300 ]; do sleep 0.2; i=\$((i+1)); done; \
    gimp-3.2 --new-instance --no-splash --no-fonts \

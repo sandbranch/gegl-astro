@@ -37,24 +37,31 @@ changed setting recomputes the whole layer.
 
 ## Build and install
 
-Needs GEGL 0.4.62 or newer and babl, meson and a C compiler.
+Needs GEGL 0.4.62 or newer and babl with their development files,
+meson and a C compiler; for use in GIMP, the native GIMP 3. On Debian and
+Ubuntu:
 
 ```sh
-meson setup build
-ninja -C build
-ninja -C build install   # into GEGL's system folder of operations
+sudo apt install gimp libgimp-3.0-dev meson ninja-build
 ```
 
-For your own user, or for the Flatpak GIMP, build in the Flatpak's SDK
-with `../gimp-devtools/gimp-build.sh` and install into the user's folder
-of GEGL operations:
+For your own user, into `~/.local/share/gegl-0.4/plug-ins`, where GIMP
+loads GEGL operations from at start:
+
+```sh
+meson setup build -Dmoduledir=$HOME/.local/share/gegl-0.4/plug-ins
+ninja -C build install
+```
+
+or the same through `../gimp-devtools/gimp-build.sh`, which finds that
+folder (`$GEGL_OPDIR`):
 
 ```sh
 ../gimp-devtools/gimp-build.sh . 'meson setup build -Dmoduledir=$GEGL_OPDIR && ninja -C build install'
 ```
 
-(`$GEGL_OPDIR` is `~/.var/app/org.gimp.GIMP/data/gegl-0.4/plug-ins` for
-the Flatpak, `~/.local/share/gegl-0.4/plug-ins` otherwise.)
+Without `-Dmoduledir`, `ninja -C build install` installs into GEGL's
+system folder of operations.
 
 ## Tests
 
@@ -63,12 +70,14 @@ copy of `gimp-devtools/isolate.sh`: a throwaway home and profile in
 `tests/output`) and check that nothing in your folders of GIMP and other
 apps changed.
 
-- `tests/check.sh`: builds in the Flatpak GIMP's SDK and runs the
+- `tests/check.sh`: builds against the system's GEGL and runs the
   numerical checks on synthetic star fields, again under AddressSanitizer
   and UndefinedBehaviorSanitizer (`tests/check.sh quick`: without).
-- `tests/gimp-check.sh`: the filter in headless GIMP 3.2.6: a
-  non-destructive filter on every precision and grayscale, settings kept
-  through XCF, the same pixels as plain GEGL and the `gegl` command line.
+- `tests/gimp-check.sh`: the filter in the native GIMP without a window:
+  a non-destructive filter on every precision and grayscale, settings
+  kept through XCF, the same pixels as plain GEGL and the `gegl` command
+  line (skipped without the `gegl` command, on Debian and Ubuntu the
+  package `gegl`).
 - `tests/gui/look.sh [steps]`: GIMP (`--new-instance`) on a Broadway
   display with a generated star field, driven by a headless Chrome
   (`gimp-devtools/gui/cdp.mjs`), leaves a screenshot in
